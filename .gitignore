@@ -5,3 +5,8 @@
 /shard.lock/
 *.dwarf
 /.zig-cache/
+
+# C build artifacts
+/ext/
+*.o
+*.a

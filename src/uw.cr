@@ -68,21 +68,21 @@ module Uw
   # of bytes it spans. Returns width `nil` for a lone control cluster.
   def self.first_cluster_width(string : String, policy : Utf8 = Utf8::Replace) : {Int32?, Int32}
     w = LibUW.uw_width_utf8(string.to_unsafe, string.bytesize, out consumed, policy)
-    { (w < 0 ? nil : w.to_i), consumed.to_i }
+    {(w < 0 ? nil : w.to_i), consumed.to_i}
   end
 
   # Display width of the first grapheme cluster in *bytes* (assumed UTF-8),
   # plus the number of bytes it spans.
   def self.first_cluster_width(bytes : Bytes, policy : Utf8 = Utf8::Replace) : {Int32?, Int32}
     w = LibUW.uw_width_utf8(bytes.to_unsafe, bytes.size, out consumed, policy)
-    { (w < 0 ? nil : w.to_i), consumed.to_i }
+    {(w < 0 ? nil : w.to_i), consumed.to_i}
   end
 
   # Display width of the first grapheme cluster in a code-point slice, plus
   # the number of code points it spans.
   def self.first_cluster_width(cps : Slice(UInt32)) : {Int32?, Int32}
     w = LibUW.uw_width_cps(cps.to_unsafe, cps.size, out consumed)
-    { (w < 0 ? nil : w.to_i), consumed.to_i }
+    {(w < 0 ? nil : w.to_i), consumed.to_i}
   end
 
   # Byte length of the next grapheme starting at the front of *string*.
