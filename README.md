@@ -1,4 +1,4 @@
-
+# uw.cr
 
 Crystal bindings for the header-only `uw` Unicode width + grapheme
 segmentation C library (Unicode 17.0.0).
