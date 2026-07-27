@@ -7,8 +7,6 @@ require "./uw/cluster"
 require "./uw/utf8"
 
 module UW
-  VERSION = "2.0.0"
-
   {% unless @type.has_constant?("CLUSTER_WIDTH_CAP") %}
     CLUSTER_WIDTH_CAP = 2
   {% end %}
