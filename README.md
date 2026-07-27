@@ -139,9 +139,9 @@ UW::VERSION            # => "2.0.0"    the shard version
 UW.unicode_version     # => "17.0.0"   the UCD version the tables were built from
 ```
 
-### Not part of the public API
+### Internal symbols
 
-`UW::Props` and the `GCB_*` / `INCB_*` constants expose the packed lookup-table internals. They exist only because the streaming primitives reference them; treat them as private and do not depend on them. The functions above are the supported surface.
+The packed lookup-table internals — the `UW::Props` accessors and the `GCB_*` / `INCB_*` / `VS*` constants — are `protected`/`private` and cannot be reached from outside the module. The functions above are the entire public surface.
 
 ## Width policy
 

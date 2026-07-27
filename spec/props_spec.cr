@@ -9,19 +9,12 @@ describe UW do
     end
   end
 
-  describe ".props" do
-    it "returns 0 above the trie range" do
-      UW.props(0x110000_u32).should eq(0_u16)
-      UW.props(0xFFFFFFFF_u32).should eq(0_u16)
-    end
-
-    it "packs width in the low two bits" do
-      (UW.props('A'.ord.to_u32) & 0x3).should eq(1)
-      (UW.props(0x4E00_u32) & 0x3).should eq(2)
-    end
-  end
-
   describe ".width_cp" do
+    it "returns 0 above the trie range" do
+      UW.width_cp(0x110000_u32).should eq(0)
+      UW.width_cp(0xFFFFFFFF_u32).should eq(0)
+    end
+
     it "is 1 for ASCII letters" do
       UW.width_cp('A'.ord.to_u32).should eq(1)
     end
