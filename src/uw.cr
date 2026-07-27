@@ -1,11 +1,15 @@
 # src/uw.cr
 
 require "./uw/tables"
+require "./uw/props"
+require "./uw/state"
+require "./uw/cluster"
+require "./uw/utf8"
 
 module UW
   VERSION = "2.0.0"
 
-  {% unless @top_level.has_constant?("CLUSTER_WIDTH_CAP") %}
+  {% unless @type.has_constant?("CLUSTER_WIDTH_CAP") %}
     CLUSTER_WIDTH_CAP = 2
   {% end %}
 
@@ -19,263 +23,13 @@ module UW
     Strict  = 1
   end
 
-  private VS15 = 0xFE0E_u32
-  private VS16 = 0xFE0F_u32
-
-  private GCB_OTHER       =  0_u8
-  private GCB_CR          =  1_u8
-  private GCB_LF          =  2_u8
-  private GCB_CONTROL     =  3_u8
-  private GCB_EXTEND      =  4_u8
-  private GCB_ZWJ         =  5_u8
-  private GCB_PREPEND     =  6_u8
-  private GCB_SPACINGMARK =  7_u8
-  private GCB_L           =  8_u8
-  private GCB_V           =  9_u8
-  private GCB_T           = 10_u8
-  private GCB_LV          = 11_u8
-  private GCB_LVT         = 12_u8
-  private GCB_RI          = 13_u8
-
-  private INCB_NONE      = 0
-  private INCB_CONSONANT = 1
-  private INCB_EXTEND    = 2
-  private INCB_LINKER    = 3
-
   def self.unicode_version : String
     UNICODE_VERSION
-  end
-
-  # Low-level packed-property accessors, protected so only the types in this
-  # module can reach them. Not part of the public API.
-  module Props
-    @[AlwaysInline]
-    protected def self.props(cp : UInt32) : UInt16
-      return 0_u16 if cp >= (STAGE1_LEN.to_u32 << BLOCK_BITS)
-      STAGE2[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
-    end
-
-    @[AlwaysInline]
-    protected def self.width(p : UInt16) : Int32
-      (p & 0x3).to_i32
-    end
-
-    @[AlwaysInline]
-    protected def self.gcb(p : UInt16) : UInt8
-      ((p >> 2) & 0xF).to_u8
-    end
-
-    @[AlwaysInline]
-    protected def self.pict?(p : UInt16) : Bool
-      (p & 0x40) != 0
-    end
-
-    @[AlwaysInline]
-    protected def self.epres?(p : UInt16) : Bool
-      (p & 0x80) != 0
-    end
-
-    @[AlwaysInline]
-    protected def self.incb(p : UInt16) : Int32
-      ((p >> 8) & 0x3).to_i32
-    end
   end
 
   def self.width_cp(cp : UInt32) : Int32
     w = Props.width(Props.props(cp))
     w == 3 ? -1 : w
-  end
-
-  struct State
-    def initialize
-      @prev_gcb = GCB_OTHER
-      @ri_parity = 0_u8
-      @saw_pict = false
-      @zwj_after_pict = false
-      @incb_consonant = false
-      @incb_linker_seen = false
-      @has_prev = false
-    end
-
-    def reset : Nil
-      @prev_gcb = GCB_OTHER
-      @ri_parity = 0_u8
-      @saw_pict = false
-      @zwj_after_pict = false
-      @incb_consonant = false
-      @incb_linker_seen = false
-      @has_prev = false
-    end
-
-    def grapheme_break(cp : UInt32) : Bool
-      p = UW::Props.props(cp)
-      gcb = UW::Props.gcb(p)
-      pict = UW::Props.pict?(p)
-      incb = UW::Props.incb(p)
-
-      if !@has_prev
-        brk = true
-      else
-        a = @prev_gcb
-        b = gcb
-        if a == GCB_CR && b == GCB_LF
-          brk = false
-        elsif a == GCB_CONTROL || a == GCB_CR || a == GCB_LF
-          brk = true
-        elsif b == GCB_CONTROL || b == GCB_CR || b == GCB_LF
-          brk = true
-        elsif a == GCB_L && (b == GCB_L || b == GCB_V || b == GCB_LV || b == GCB_LVT)
-          brk = false
-        elsif (a == GCB_LV || a == GCB_V) && (b == GCB_V || b == GCB_T)
-          brk = false
-        elsif (a == GCB_LVT || a == GCB_T) && b == GCB_T
-          brk = false
-        elsif b == GCB_EXTEND || b == GCB_ZWJ
-          brk = false
-        elsif b == GCB_SPACINGMARK
-          brk = false
-        elsif a == GCB_PREPEND
-          brk = false
-        elsif incb == INCB_CONSONANT && @incb_consonant && @incb_linker_seen
-          brk = false
-        elsif @zwj_after_pict && pict
-          brk = false
-        elsif a == GCB_RI && b == GCB_RI && (@ri_parity & 1) != 0
-          brk = false
-        else
-          brk = true
-        end
-      end
-
-      if gcb == GCB_RI
-        @ri_parity ^= 1_u8
-      else
-        @ri_parity = 0_u8
-      end
-
-      if pict
-        @saw_pict = true
-        @zwj_after_pict = false
-      elsif gcb == GCB_EXTEND
-        @zwj_after_pict = false
-      elsif gcb == GCB_ZWJ
-        @zwj_after_pict = @saw_pict
-      else
-        @saw_pict = false
-        @zwj_after_pict = false
-      end
-
-      if incb == INCB_CONSONANT
-        @incb_consonant = true
-        @incb_linker_seen = false
-      elsif incb == INCB_LINKER
-        @incb_linker_seen = true if @incb_consonant
-      elsif incb == INCB_EXTEND
-        # keeps the sequence alive; no change
-      else
-        @incb_consonant = false
-        @incb_linker_seen = false
-      end
-
-      @prev_gcb = gcb
-      @has_prev = true
-      brk
-    end
-  end
-
-  struct Cluster
-    getter started : Bool
-
-    def initialize
-      @width = 0
-      @started = false
-      @base_narrow_emoji = false
-      @ri_count = 0_u8
-    end
-
-    def reset : Nil
-      @width = 0
-      @started = false
-      @base_narrow_emoji = false
-      @ri_count = 0_u8
-    end
-
-    def push(cp : UInt32) : Nil
-      p = UW::Props.props(cp)
-      gcb = UW::Props.gcb(p)
-      w = UW::Props.width(p)
-
-      if gcb == GCB_RI
-        @ri_count += 1
-        if !@started
-          @width = 1
-          @started = true
-        end
-        @width = 2 if @ri_count == 2
-        return
-      end
-
-      if cp == VS16
-        @width = 2 if @base_narrow_emoji
-        return
-      end
-      if cp == VS15
-        @width = 1 if @base_narrow_emoji
-        return
-      end
-
-      if !@started
-        @started = true
-        @width = (w == 3) ? -1 : w
-        @base_narrow_emoji = true if !UW::Props.epres?(p) && w != 2
-      end
-    end
-
-    def display_width : Int32
-      return -1 if @width < 0
-      {% if CLUSTER_WIDTH_CAP > 0 %}
-        @width > CLUSTER_WIDTH_CAP ? CLUSTER_WIDTH_CAP : @width
-      {% else %}
-        @width
-      {% end %}
-    end
-  end
-
-  @[AlwaysInline]
-  private def self.utf8_decode(s : Pointer(UInt8), n : Int32) : {UInt32, Int32, Bool}
-    c = s[0]
-    return {c.to_u32, 1, false} if c < 0x80
-
-    if (c & 0xE0) == 0xC0
-      len = 2
-      min = 0x80_u32
-      acc = (c & 0x1F).to_u32
-    elsif (c & 0xF0) == 0xE0
-      len = 3
-      min = 0x800_u32
-      acc = (c & 0x0F).to_u32
-    elsif (c & 0xF8) == 0xF0
-      len = 4
-      min = 0x10000_u32
-      acc = (c & 0x07).to_u32
-    else
-      return {0xFFFD_u32, 1, true}
-    end
-
-    return {0xFFFD_u32, 1, true} if len > n
-
-    i = 1
-    while i < len
-      ci = s[i]
-      return {0xFFFD_u32, 1, true} if (ci & 0xC0) != 0x80
-      acc = (acc << 6) | (ci & 0x3F).to_u32
-      i += 1
-    end
-
-    if acc < min || acc > 0x10FFFF_u32 || (acc >= 0xD800_u32 && acc <= 0xDFFF_u32)
-      return {0xFFFD_u32, 1, true}
-    end
-    {acc, len, false}
   end
 
   def self.width(cps : Slice(UInt32)) : {Int32, Int32}

@@ -18,8 +18,14 @@ Crystal `>= 1.21.0`. No third-party dependencies.
 
 ## Project layout
 
-- `src/uw.cr` — the whole implementation: accessors, `State`, `Cluster`,
-  UTF-8 decode, and the public API. Edit here.
+- `src/uw.cr` — the public API: `width_cp`, `width`, `grapheme_next`, `swidth`,
+  `unicode_version`, the `CtrlPolicy`/`Utf8Policy` enums, and `VERSION`/
+  `CLUSTER_WIDTH_CAP`. Requires the internal files below.
+- `src/uw/props.cr` — the `UW::Props` accessors and the packed-property
+  constants (`GCB_*`, `INCB_*`, `VS*`). Internal.
+- `src/uw/state.cr` — the `State` grapheme-boundary state machine.
+- `src/uw/cluster.cr` — the `Cluster` width accumulator.
+- `src/uw/utf8.cr` — the internal `utf8_decode` helper.
 - `src/uw-cr.cr` — entrypoint, do not add logic to it.
 - `src/uw/tables.cr`, `src/uw/stage1.bin`, `src/uw/stage2.bin` — GENERATED. Do
   not hand-edit. Change them only by running `make gen`.
@@ -28,6 +34,9 @@ Crystal `>= 1.21.0`. No third-party dependencies.
 - `tools/ucd/` — cached Unicode Character Database source files (committed).
 - `spec/` — specs and `spec/data/GraphemeBreakTest.txt` (the authoritative
   conformance data, committed).
+
+All of `src/uw/*.cr` reopen `module UW`; the split preserves the `protected`/
+`private` visibility because everything stays in one namespace.
 
 ## Do not touch without regenerating
 
