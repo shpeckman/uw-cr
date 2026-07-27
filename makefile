@@ -1,25 +1,19 @@
 # Makefile
 
-CC       ?= cc
-CSRC     := src/uw
-OUT      := ext
-# Override the cluster-width cap at build time, e.g. `make UW_CAP=0`.
-UW_CAP   ?= 2
-CFLAGS   ?= -O2 -fPIC -std=c11
-CPPFLAGS := -I$(CSRC) -DUW_CLUSTER_WIDTH_CAP=$(UW_CAP)
+.PHONY: spec build clean fetch-testdata
 
-.PHONY: all clean
+UCD_VERSION := 17.0.0
+TESTDATA := spec/data/GraphemeBreakTest.txt
 
-all: $(OUT)/libuw.a
+spec:
+	crystal spec
 
-$(OUT):
-	mkdir -p $(OUT)
+build:
+	crystal build --release src/uw.cr -o uw
 
-$(OUT)/uw_impl.o: $(CSRC)/uw_impl.c $(CSRC)/uw.h | $(OUT)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
-
-$(OUT)/libuw.a: $(OUT)/uw_impl.o
-	$(AR) rcs $@ $^
+fetch-testdata:
+	mkdir -p spec/data
+	curl -fsSL "https://www.unicode.org/Public/$(UCD_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt" -o $(TESTDATA)
 
 clean:
-	$(RM) $(OUT)/uw_impl.o $(OUT)/libuw.a
+	rm -f uw

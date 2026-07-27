@@ -1,214 +1,416 @@
 # src/uw.cr
 
-require "./uw/lib_uw"
+require "./uw/tables"
 
-# Unicode display-width and grapheme-cluster segmentation.
-#
-# Thin, zero-copy bindings over the header-only `uw` C library (Unicode
-# 17.0.0). Every call is synchronous, reentrant, and thread-safe: the only
-# mutable state lives in caller-owned `Uw::Segmenter` / `Uw::ClusterWidth`
-# values, which wrap C structs on the stack. Buffers are passed by pointer
-# and length; no copies into C-owned memory are made, so these are safe to
-# call from any fiber without interacting with the event loop.
-module Uw
+module UW
   VERSION = "1.0.0"
 
-  # Handling for control characters when measuring a whole string.
-  enum Control
-    # Controls contribute 0; the width is the sum of printable clusters.
+  {% unless @top_level.has_constant?("CLUSTER_WIDTH_CAP") %}
+    CLUSTER_WIDTH_CAP = 2
+  {% end %}
+
+  enum CtrlPolicy
     Skip = 0
-    # Any control makes the whole string measure as invalid (POSIX
-    # `wcswidth` semantics), surfaced as `nil` from `string_width`.
     Fail = 1
-
-    def to_unsafe : LibUW::CtrlPolicy
-      LibUW::CtrlPolicy.new(value)
-    end
   end
 
-  # Handling for malformed UTF-8.
-  enum Utf8
-    # Malformed/truncated/overlong/surrogate bytes become U+FFFD and one
-    # byte is consumed. Never reads past the given length.
+  enum Utf8Policy
     Replace = 0
-    # Stop at the first malformed sequence; report what was consumed.
-    Strict = 1
-
-    def to_unsafe : LibUW::Utf8Policy
-      LibUW::Utf8Policy.new(value)
-    end
+    Strict  = 1
   end
 
-  # Unicode version the lookup tables were generated from, e.g. `"17.0.0"`.
+  VS15 = 0xFE0E_u32
+  VS16 = 0xFE0F_u32
+
+  GCB_OTHER       =  0_u8
+  GCB_CR          =  1_u8
+  GCB_LF          =  2_u8
+  GCB_CONTROL     =  3_u8
+  GCB_EXTEND      =  4_u8
+  GCB_ZWJ         =  5_u8
+  GCB_PREPEND     =  6_u8
+  GCB_SPACINGMARK =  7_u8
+  GCB_L           =  8_u8
+  GCB_V           =  9_u8
+  GCB_T           = 10_u8
+  GCB_LV          = 11_u8
+  GCB_LVT         = 12_u8
+  GCB_RI          = 13_u8
+
+  INCB_NONE      = 0
+  INCB_CONSONANT = 1
+  INCB_EXTEND    = 2
+  INCB_LINKER    = 3
+
   def self.unicode_version : String
-    String.new(LibUW.uw_unicode_version)
+    UNICODE_VERSION
   end
 
-  # The cluster-width cap this library was compiled with (2 by default, or
-  # 0 for no cap). Callers that reason about caps must read this rather than
-  # assume, since it is fixed at C build time.
-  def self.active_width_cap : Int32
-    LibUW.uw_active_width_cap
+  @[AlwaysInline]
+  def self.props(cp : UInt32) : UInt16
+    return 0_u16 if cp >= (STAGE1_LEN.to_u32 << BLOCK_BITS)
+    STAGE2[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
   end
 
-  # Display width of a single code point: `0`, `1`, or `2`, or `nil` for a
-  # control code (the C `-1` sentinel).
-  def self.width(cp : Char) : Int32?
-    raw = LibUW.uw_width_cp(cp.ord.to_u32)
-    raw < 0 ? nil : raw.to_i
+  @[AlwaysInline]
+  def self.prop_width(p : UInt16) : Int32
+    (p & 0x3).to_i32
   end
 
-  # :ditto:
-  def self.width(cp : Int) : Int32?
-    raw = LibUW.uw_width_cp(cp.to_u32)
-    raw < 0 ? nil : raw.to_i
+  @[AlwaysInline]
+  def self.prop_gcb(p : UInt16) : UInt8
+    ((p >> 2) & 0xF).to_u8
   end
 
-  # Display width of the first grapheme cluster in *string*, plus the number
-  # of bytes it spans. Returns width `nil` for a lone control cluster.
-  def self.first_cluster_width(string : String, policy : Utf8 = Utf8::Replace) : {Int32?, Int32}
-    w = LibUW.uw_width_utf8(string.to_unsafe, string.bytesize, out consumed, policy)
-    {(w < 0 ? nil : w.to_i), consumed.to_i}
+  @[AlwaysInline]
+  def self.prop_pict?(p : UInt16) : Bool
+    (p & 0x40) != 0
   end
 
-  # Display width of the first grapheme cluster in *bytes* (assumed UTF-8),
-  # plus the number of bytes it spans.
-  def self.first_cluster_width(bytes : Bytes, policy : Utf8 = Utf8::Replace) : {Int32?, Int32}
-    w = LibUW.uw_width_utf8(bytes.to_unsafe, bytes.size, out consumed, policy)
-    {(w < 0 ? nil : w.to_i), consumed.to_i}
+  @[AlwaysInline]
+  def self.prop_epres?(p : UInt16) : Bool
+    (p & 0x80) != 0
   end
 
-  # Display width of the first grapheme cluster in a code-point slice, plus
-  # the number of code points it spans.
-  def self.first_cluster_width(cps : Slice(UInt32)) : {Int32?, Int32}
-    w = LibUW.uw_width_cps(cps.to_unsafe, cps.size, out consumed)
-    {(w < 0 ? nil : w.to_i), consumed.to_i}
+  @[AlwaysInline]
+  def self.prop_incb(p : UInt16) : Int32
+    ((p >> 8) & 0x3).to_i32
   end
 
-  # Byte length of the next grapheme starting at the front of *string*.
-  # `0` when *string* is empty; always at least one byte under `Replace`.
-  def self.next_grapheme_size(string : String, policy : Utf8 = Utf8::Replace) : Int32
-    LibUW.uw_grapheme_next_utf8(string.to_unsafe, string.bytesize, policy).to_i
+  def self.width_cp(cp : UInt32) : Int32
+    w = prop_width(props(cp))
+    w == 3 ? -1 : w
   end
 
-  # :ditto:
-  def self.next_grapheme_size(bytes : Bytes, policy : Utf8 = Utf8::Replace) : Int32
-    LibUW.uw_grapheme_next_utf8(bytes.to_unsafe, bytes.size, policy).to_i
-  end
-
-  # Code-point count of the next grapheme starting at the front of *cps*.
-  def self.next_grapheme_size(cps : Slice(UInt32)) : Int32
-    LibUW.uw_grapheme_next_cps(cps.to_unsafe, cps.size).to_i
-  end
-
-  # Total display width of *string*, summing every grapheme cluster.
-  # Returns `nil` only when *control* is `Control::Fail` and a control
-  # character is present.
-  def self.string_width(string : String, control : Control = Control::Skip,
-                        policy : Utf8 = Utf8::Replace) : Int32?
-    w = LibUW.uw_swidth_utf8(string.to_unsafe, string.bytesize, policy, control)
-    w < 0 ? nil : w.to_i
-  end
-
-  # :ditto:
-  def self.string_width(bytes : Bytes, control : Control = Control::Skip,
-                        policy : Utf8 = Utf8::Replace) : Int32?
-    w = LibUW.uw_swidth_utf8(bytes.to_unsafe, bytes.size, policy, control)
-    w < 0 ? nil : w.to_i
-  end
-
-  # Total display width of a code-point slice.
-  def self.string_width(cps : Slice(UInt32), control : Control = Control::Skip) : Int32?
-    w = LibUW.uw_swidth_cps(cps.to_unsafe, cps.size, control)
-    w < 0 ? nil : w.to_i
-  end
-
-  # Iterate the grapheme clusters of *string*, yielding each as a substring.
-  def self.each_grapheme(string : String, policy : Utf8 = Utf8::Replace, &) : Nil
-    ptr = string.to_unsafe
-    rest = string.bytesize
-    off = 0
-    while rest > 0
-      step = LibUW.uw_grapheme_next_utf8(ptr + off, rest, policy).to_i
-      break if step == 0
-      yield String.new(ptr + off, step)
-      off += step
-      rest -= step
-    end
-  end
-
-  # Collect the grapheme clusters of *string* into an array of substrings.
-  def self.graphemes(string : String, policy : Utf8 = Utf8::Replace) : Array(String)
-    out = [] of String
-    each_grapheme(string, policy) { |g| out << g }
-    out
-  end
-
-  # Streaming grapheme-boundary state machine.
-  #
-  # Wraps the C `uw_state` on the stack. Feed code points in order; each
-  # `#break_before?` reports whether a cluster boundary falls immediately
-  # before the given code point. Drive this straight from a terminal input
-  # path across buffer reads by keeping one `Segmenter` alive.
-  struct Segmenter
-    @st : LibUW::State
+  struct State
+    property prev_gcb : UInt8
+    property ri_parity : UInt8
+    property saw_pict : Bool
+    property zwj_after_pict : Bool
+    property incb_consonant : Bool
+    property incb_linker_seen : Bool
+    property has_prev : Bool
 
     def initialize
-      @st = uninitialized LibUW::State
-      LibUW.uw_state_init(pointerof(@st))
+      @prev_gcb = GCB_OTHER
+      @ri_parity = 0_u8
+      @saw_pict = false
+      @zwj_after_pict = false
+      @incb_consonant = false
+      @incb_linker_seen = false
+      @has_prev = false
     end
 
-    # Reset to the initial state, reusing the same storage.
-    def reset : self
-      LibUW.uw_state_init(pointerof(@st))
-      self
+    def reset : Nil
+      @prev_gcb = GCB_OTHER
+      @ri_parity = 0_u8
+      @saw_pict = false
+      @zwj_after_pict = false
+      @incb_consonant = false
+      @incb_linker_seen = false
+      @has_prev = false
     end
 
-    # `true` if a grapheme boundary falls immediately before *cp*.
-    def break_before?(cp : Char) : Bool
-      LibUW.uw_grapheme_break(pointerof(@st), cp.ord.to_u32) != 0
-    end
+    def grapheme_break(cp : UInt32) : Bool
+      p = UW.props(cp)
+      gcb = UW.prop_gcb(p)
+      pict = UW.prop_pict?(p)
+      incb = UW.prop_incb(p)
 
-    # :ditto:
-    def break_before?(cp : Int) : Bool
-      LibUW.uw_grapheme_break(pointerof(@st), cp.to_u32) != 0
+      if !@has_prev
+        brk = true
+      else
+        a = @prev_gcb
+        b = gcb
+        if a == GCB_CR && b == GCB_LF
+          brk = false
+        elsif a == GCB_CONTROL || a == GCB_CR || a == GCB_LF
+          brk = true
+        elsif b == GCB_CONTROL || b == GCB_CR || b == GCB_LF
+          brk = true
+        elsif a == GCB_L && (b == GCB_L || b == GCB_V || b == GCB_LV || b == GCB_LVT)
+          brk = false
+        elsif (a == GCB_LV || a == GCB_V) && (b == GCB_V || b == GCB_T)
+          brk = false
+        elsif (a == GCB_LVT || a == GCB_T) && b == GCB_T
+          brk = false
+        elsif b == GCB_EXTEND || b == GCB_ZWJ
+          brk = false
+        elsif b == GCB_SPACINGMARK
+          brk = false
+        elsif a == GCB_PREPEND
+          brk = false
+        elsif incb == INCB_CONSONANT && @incb_consonant && @incb_linker_seen
+          brk = false
+        elsif @zwj_after_pict && pict
+          brk = false
+        elsif a == GCB_RI && b == GCB_RI && (@ri_parity & 1) != 0
+          brk = false
+        else
+          brk = true
+        end
+      end
+
+      if gcb == GCB_RI
+        @ri_parity ^= 1_u8
+      else
+        @ri_parity = 0_u8
+      end
+
+      if pict
+        @saw_pict = true
+        @zwj_after_pict = false
+      elsif gcb == GCB_EXTEND
+        @zwj_after_pict = false
+      elsif gcb == GCB_ZWJ
+        @zwj_after_pict = @saw_pict
+      else
+        @saw_pict = false
+        @zwj_after_pict = false
+      end
+
+      if incb == INCB_CONSONANT
+        @incb_consonant = true
+        @incb_linker_seen = false
+      elsif incb == INCB_LINKER
+        @incb_linker_seen = true if @incb_consonant
+      elsif incb == INCB_EXTEND
+        # keeps the sequence alive; no change
+      else
+        @incb_consonant = false
+        @incb_linker_seen = false
+      end
+
+      @prev_gcb = gcb
+      @has_prev = true
+      brk
     end
   end
 
-  # Streaming cluster-width accumulator.
-  #
-  # Wraps the C `uw_cluster` on the stack. Push the code points of one
-  # grapheme, then read `#width`. Reuse across clusters with `#reset`.
-  struct ClusterWidth
-    @cl : LibUW::Cluster
+  struct Cluster
+    property width : Int32
+    property started : Bool
+    property base_narrow_emoji : Bool
+    property ri_count : UInt8
 
     def initialize
-      @cl = uninitialized LibUW::Cluster
-      LibUW.uw_cluster_init(pointerof(@cl))
+      @width = 0
+      @started = false
+      @base_narrow_emoji = false
+      @ri_count = 0_u8
     end
 
-    # Reset to an empty cluster, reusing the same storage.
-    def reset : self
-      LibUW.uw_cluster_init(pointerof(@cl))
-      self
+    def reset : Nil
+      @width = 0
+      @started = false
+      @base_narrow_emoji = false
+      @ri_count = 0_u8
     end
 
-    # Add a code point to the current cluster.
-    def push(cp : Char) : self
-      LibUW.uw_cluster_push(pointerof(@cl), cp.ord.to_u32)
-      self
+    def push(cp : UInt32) : Nil
+      p = UW.props(cp)
+      gcb = UW.prop_gcb(p)
+      w = UW.prop_width(p)
+
+      if gcb == GCB_RI
+        @ri_count += 1
+        if !@started
+          @width = 1
+          @started = true
+        end
+        @width = 2 if @ri_count == 2
+        return
+      end
+
+      if cp == VS16
+        @width = 2 if @base_narrow_emoji
+        return
+      end
+      if cp == VS15
+        @width = 1 if @base_narrow_emoji
+        return
+      end
+
+      if !@started
+        @started = true
+        @width = (w == 3) ? -1 : w
+        @base_narrow_emoji = true if !UW.prop_epres?(p) && w != 2
+      end
     end
 
-    # :ditto:
-    def push(cp : Int) : self
-      LibUW.uw_cluster_push(pointerof(@cl), cp.to_u32)
-      self
+    def display_width : Int32
+      return -1 if @width < 0
+      {% if CLUSTER_WIDTH_CAP > 0 %}
+        @width > CLUSTER_WIDTH_CAP ? CLUSTER_WIDTH_CAP : @width
+      {% else %}
+        @width
+      {% end %}
+    end
+  end
+
+  @[AlwaysInline]
+  private def self.utf8_decode(s : Pointer(UInt8), n : Int32) : {UInt32, Int32, Bool}
+    c = s[0]
+    return {c.to_u32, 1, false} if c < 0x80
+
+    if (c & 0xE0) == 0xC0
+      len = 2
+      min = 0x80_u32
+      acc = (c & 0x1F).to_u32
+    elsif (c & 0xF0) == 0xE0
+      len = 3
+      min = 0x800_u32
+      acc = (c & 0x0F).to_u32
+    elsif (c & 0xF8) == 0xF0
+      len = 4
+      min = 0x10000_u32
+      acc = (c & 0x07).to_u32
+    else
+      return {0xFFFD_u32, 1, true}
     end
 
-    # Current cluster width, or `nil` for a control cluster.
-    def width : Int32?
-      w = LibUW.uw_cluster_width(pointerof(@cl))
-      w < 0 ? nil : w.to_i
+    return {0xFFFD_u32, 1, true} if len > n
+
+    i = 1
+    while i < len
+      ci = s[i]
+      return {0xFFFD_u32, 1, true} if (ci & 0xC0) != 0x80
+      acc = (acc << 6) | (ci & 0x3F).to_u32
+      i += 1
     end
+
+    if acc < min || acc > 0x10FFFF_u32 || (acc >= 0xD800_u32 && acc <= 0xDFFF_u32)
+      return {0xFFFD_u32, 1, true}
+    end
+    {acc, len, false}
+  end
+
+  def self.width(cps : Slice(UInt32)) : {Int32, Int32}
+    n = cps.size
+    if n == 0
+      return {0, 0}
+    end
+    st = State.new
+    cl = Cluster.new
+    ptr = cps.to_unsafe
+    i = 0
+    while i < n
+      break if st.grapheme_break(ptr[i]) && cl.started
+      cl.push(ptr[i])
+      i += 1
+    end
+    {cl.display_width, i}
+  end
+
+  def self.width(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace) : {Int32, Int32}
+    n = s.size
+    if n == 0
+      return {0, 0}
+    end
+    st = State.new
+    cl = Cluster.new
+    ptr = s.to_unsafe
+    i = 0
+    while i < n
+      cp, len, bad = utf8_decode(ptr + i, n - i)
+      break if bad && policy.strict?
+      break if st.grapheme_break(cp) && cl.started
+      cl.push(cp)
+      i += len
+    end
+    {cl.display_width, i}
+  end
+
+  def self.width(s : String, policy : Utf8Policy = Utf8Policy::Replace) : {Int32, Int32}
+    width(s.to_slice, policy)
+  end
+
+  def self.grapheme_next(cps : Slice(UInt32)) : Int32
+    _, consumed = width(cps)
+    consumed
+  end
+
+  def self.grapheme_next(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace) : Int32
+    _, consumed = width(s, policy)
+    consumed
+  end
+
+  def self.grapheme_next(s : String, policy : Utf8Policy = Utf8Policy::Replace) : Int32
+    grapheme_next(s.to_slice, policy)
+  end
+
+  def self.swidth(cps : Slice(UInt32), ctrl : CtrlPolicy = CtrlPolicy::Skip) : Int32
+    st = State.new
+    cl = Cluster.new
+    total = 0
+    have_cluster = false
+    ptr = cps.to_unsafe
+    n = cps.size
+
+    i = 0
+    while i < n
+      cp = ptr[i]
+      if st.grapheme_break(cp) && have_cluster
+        w = cl.display_width
+        if w < 0
+          return -1 if ctrl.fail?
+        else
+          total += w
+        end
+        cl.reset
+      end
+      cl.push(cp)
+      have_cluster = true
+      i += 1
+    end
+    if have_cluster
+      w = cl.display_width
+      if w < 0
+        return -1 if ctrl.fail?
+      else
+        total += w
+      end
+    end
+    total
+  end
+
+  def self.swidth(s : Bytes, upolicy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip) : Int32
+    st = State.new
+    cl = Cluster.new
+    total = 0
+    have_cluster = false
+    ptr = s.to_unsafe
+    n = s.size
+
+    i = 0
+    while i < n
+      cp, len, bad = utf8_decode(ptr + i, n - i)
+      break if bad && upolicy.strict?
+      if st.grapheme_break(cp) && have_cluster
+        w = cl.display_width
+        if w < 0
+          return -1 if ctrl.fail?
+        else
+          total += w
+        end
+        cl.reset
+      end
+      cl.push(cp)
+      have_cluster = true
+      i += len
+    end
+    if have_cluster
+      w = cl.display_width
+      if w < 0
+        return -1 if ctrl.fail?
+      else
+        total += w
+      end
+    end
+    total
+  end
+
+  def self.swidth(s : String, upolicy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip) : Int32
+    swidth(s.to_slice, upolicy, ctrl)
   end
 end
