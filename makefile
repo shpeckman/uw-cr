@@ -8,9 +8,6 @@ TESTDATA := spec/data/GraphemeBreakTest.txt
 spec:
 	crystal spec
 
-build:
-	crystal build --release src/uw.cr -o uw
-
 gen:
 	crystal run tools/gen_tables.cr
 

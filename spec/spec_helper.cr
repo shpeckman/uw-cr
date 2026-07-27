@@ -1,7 +1,7 @@
 # spec/spec_helper.cr
 
 require "spec"
-require "../src/uw"
+require "../src/uw-cr"
 
 module SpecHelper
   DATA_DIR = "#{__DIR__}/data"
