@@ -1,4 +1,4 @@
-# Makefile
+# makefile
 
 .PHONY: spec build gen gen-refresh clean fetch-testdata
 
@@ -19,4 +19,4 @@ fetch-testdata:
 	curl -fsSL "https://www.unicode.org/Public/$(UCD_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt" -o $(TESTDATA)
 
 clean:
-	rm -f uw
+	rm -f uw-cr

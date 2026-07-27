@@ -17,14 +17,14 @@ module Gen
   OUT_DIR     = "#{__DIR__}/../src/uw"
 
   MAX        = 0x110000
-  BLOCK_SIZE = 256
+  BLOCK_SIZE =      256
 
   SOURCES = {
-    "UnicodeData.txt"            => "UnicodeData.txt",
-    "EastAsianWidth.txt"         => "EastAsianWidth.txt",
-    "DerivedCoreProperties.txt"  => "DerivedCoreProperties.txt",
-    "GraphemeBreakProperty.txt"  => "auxiliary/GraphemeBreakProperty.txt",
-    "emoji-data.txt"             => "emoji/emoji-data.txt",
+    "UnicodeData.txt"           => "UnicodeData.txt",
+    "EastAsianWidth.txt"        => "EastAsianWidth.txt",
+    "DerivedCoreProperties.txt" => "DerivedCoreProperties.txt",
+    "GraphemeBreakProperty.txt" => "auxiliary/GraphemeBreakProperty.txt",
+    "emoji-data.txt"            => "emoji/emoji-data.txt",
   }
 
   GCB_CODE = {
@@ -114,8 +114,8 @@ module Gen
 
     each_range("emoji-data.txt") do |lo, hi, cols|
       case cols[1]
-      when "Emoji_Presentation"     then (lo..hi).each { |cp| epres[cp] = true }
-      when "Extended_Pictographic"  then (lo..hi).each { |cp| extpict[cp] = true }
+      when "Emoji_Presentation"    then (lo..hi).each { |cp| epres[cp] = true }
+      when "Extended_Pictographic" then (lo..hi).each { |cp| extpict[cp] = true }
       end
     end
 
