@@ -132,6 +132,17 @@ UW::Utf8Policy::Strict  # stop at the first malformed sequence
 
 The UTF-8 decoder never reads past the length you give it, and rejects overlong encodings, surrogates, and out-of-range values.
 
+### Version metadata
+
+```crystal
+UW::VERSION            # => "2.0.0"    the shard version
+UW.unicode_version     # => "17.0.0"   the UCD version the tables were built from
+```
+
+### Not part of the public API
+
+`UW::Props` and the `GCB_*` / `INCB_*` constants expose the packed lookup-table internals. They exist only because the streaming primitives reference them; treat them as private and do not depend on them. The functions above are the supported surface.
+
 ## Width policy
 
 Cluster width follows the conventions most modern terminals share:

@@ -3,7 +3,7 @@
 require "./uw/tables"
 
 module UW
-  VERSION = "1.0.0"
+  VERSION = "2.0.0"
 
   {% unless @top_level.has_constant?("CLUSTER_WIDTH_CAP") %}
     CLUSTER_WIDTH_CAP = 2
@@ -46,51 +46,47 @@ module UW
     UNICODE_VERSION
   end
 
-  @[AlwaysInline]
-  def self.props(cp : UInt32) : UInt16
-    return 0_u16 if cp >= (STAGE1_LEN.to_u32 << BLOCK_BITS)
-    STAGE2[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
-  end
+  # Low-level packed-property accessors. Public only because the State and
+  # Cluster structs reference them; not part of the supported API surface.
+  module Props
+    @[AlwaysInline]
+    def self.props(cp : UInt32) : UInt16
+      return 0_u16 if cp >= (STAGE1_LEN.to_u32 << BLOCK_BITS)
+      STAGE2[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
+    end
 
-  @[AlwaysInline]
-  def self.prop_width(p : UInt16) : Int32
-    (p & 0x3).to_i32
-  end
+    @[AlwaysInline]
+    def self.width(p : UInt16) : Int32
+      (p & 0x3).to_i32
+    end
 
-  @[AlwaysInline]
-  def self.prop_gcb(p : UInt16) : UInt8
-    ((p >> 2) & 0xF).to_u8
-  end
+    @[AlwaysInline]
+    def self.gcb(p : UInt16) : UInt8
+      ((p >> 2) & 0xF).to_u8
+    end
 
-  @[AlwaysInline]
-  def self.prop_pict?(p : UInt16) : Bool
-    (p & 0x40) != 0
-  end
+    @[AlwaysInline]
+    def self.pict?(p : UInt16) : Bool
+      (p & 0x40) != 0
+    end
 
-  @[AlwaysInline]
-  def self.prop_epres?(p : UInt16) : Bool
-    (p & 0x80) != 0
-  end
+    @[AlwaysInline]
+    def self.epres?(p : UInt16) : Bool
+      (p & 0x80) != 0
+    end
 
-  @[AlwaysInline]
-  def self.prop_incb(p : UInt16) : Int32
-    ((p >> 8) & 0x3).to_i32
+    @[AlwaysInline]
+    def self.incb(p : UInt16) : Int32
+      ((p >> 8) & 0x3).to_i32
+    end
   end
 
   def self.width_cp(cp : UInt32) : Int32
-    w = prop_width(props(cp))
+    w = Props.width(Props.props(cp))
     w == 3 ? -1 : w
   end
 
   struct State
-    property prev_gcb : UInt8
-    property ri_parity : UInt8
-    property saw_pict : Bool
-    property zwj_after_pict : Bool
-    property incb_consonant : Bool
-    property incb_linker_seen : Bool
-    property has_prev : Bool
-
     def initialize
       @prev_gcb = GCB_OTHER
       @ri_parity = 0_u8
@@ -112,10 +108,10 @@ module UW
     end
 
     def grapheme_break(cp : UInt32) : Bool
-      p = UW.props(cp)
-      gcb = UW.prop_gcb(p)
-      pict = UW.prop_pict?(p)
-      incb = UW.prop_incb(p)
+      p = UW::Props.props(cp)
+      gcb = UW::Props.gcb(p)
+      pict = UW::Props.pict?(p)
+      incb = UW::Props.incb(p)
 
       if !@has_prev
         brk = true
@@ -188,10 +184,7 @@ module UW
   end
 
   struct Cluster
-    property width : Int32
-    property started : Bool
-    property base_narrow_emoji : Bool
-    property ri_count : UInt8
+    getter started : Bool
 
     def initialize
       @width = 0
@@ -208,9 +201,9 @@ module UW
     end
 
     def push(cp : UInt32) : Nil
-      p = UW.props(cp)
-      gcb = UW.prop_gcb(p)
-      w = UW.prop_width(p)
+      p = UW::Props.props(cp)
+      gcb = UW::Props.gcb(p)
+      w = UW::Props.width(p)
 
       if gcb == GCB_RI
         @ri_count += 1
@@ -234,7 +227,7 @@ module UW
       if !@started
         @started = true
         @width = (w == 3) ? -1 : w
-        @base_narrow_emoji = true if !UW.prop_epres?(p) && w != 2
+        @base_narrow_emoji = true if !UW::Props.epres?(p) && w != 2
       end
     end
 

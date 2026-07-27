@@ -57,6 +57,13 @@ common Crystal style.
   tables are read-only.
 - The three input flavors (`String`, `Bytes`, `Slice(UInt32)`) are the API
   shape. New functions should offer the same three where it makes sense.
+- The packed-property accessors live in the nested `UW::Props` module. They are
+  public only because `State`/`Cluster` reference them (Crystal cannot call a
+  private module method from inside a nested struct). Keep them namespaced under
+  `Props` and out of the top-level `UW.` surface; document them as internal.
+- `State`/`Cluster` internal fields are not exposed. `Cluster` has a read-only
+  `started` getter because the width functions query it; add getters only when
+  an external caller genuinely needs one.
 
 ## Testing instructions
 
