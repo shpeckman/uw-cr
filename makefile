@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: spec build clean fetch-testdata
+.PHONY: spec build gen gen-refresh clean fetch-testdata
 
 UCD_VERSION := 17.0.0
 TESTDATA := spec/data/GraphemeBreakTest.txt
@@ -10,6 +10,12 @@ spec:
 
 build:
 	crystal build --release src/uw.cr -o uw
+
+gen:
+	crystal run tools/gen_tables.cr
+
+gen-refresh:
+	crystal run tools/gen_tables.cr -- --refresh
 
 fetch-testdata:
 	mkdir -p spec/data
