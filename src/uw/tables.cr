@@ -3,10 +3,10 @@
 module UW
   UNICODE_VERSION = "17.0.0"
 
-  BLOCK_BITS =    8
-  BLOCK_SIZE =  256
+  BLOCK_BITS = 8
+  BLOCK_SIZE = 256
   STAGE1_LEN = 4352
-  N_BLOCKS   =  123
+  N_BLOCKS   = 123
 
   private STAGE1_BLOB = {{ read_file("#{__DIR__}/stage1.bin") }}
   private STAGE2_BLOB = {{ read_file("#{__DIR__}/stage2.bin") }}
