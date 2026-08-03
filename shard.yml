@@ -3,7 +3,7 @@ name: uw-cr
 version: 4.2.0
 
 authors:
-  - shpeckman <geelenrobin@proton.me>
+  - shpeckman <shpeckman/uw-cr>
 
 crystal: '>= 1.21.0'
 
