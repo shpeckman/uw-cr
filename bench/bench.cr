@@ -22,6 +22,7 @@ module Bench
   UTF8_SWIDTH  = "swidth utf8"
   UTF32_SWIDTH = "swidth utf32"
   UTF8_ITER    = "cluster iter utf8"
+  UTF8_STREAM  = "cluster stream utf8"
   STDLIB_SEG   = "stdlib grapheme_size"
   SCALAR_CP    = "width_cp scalar"
 
@@ -36,38 +37,38 @@ module Bench
   end
 
   struct Corpus
-    getter name     : String
-    getter text     : String
-    getter bytes    : Bytes
-    getter cps      : Slice(UInt32)
+    getter name : String
+    getter text : String
+    getter bytes : Bytes
+    getter cps : Slice(UInt32)
     getter clusters : Int32
-    getter width    : Int32
+    getter width : Int32
 
     def initialize(@name : String, seed : String)
-      @text  = seed * ((TARGET_BYTES // seed.bytesize) + 1)
+      @text = seed * ((TARGET_BYTES // seed.bytesize) + 1)
       @bytes = @text.to_slice
-      cps    = Slice(UInt32).new(@text.size, 0_u32)
-      i      = 0
+      cps = Slice(UInt32).new(@text.size, 0_u32)
+      i = 0
       @text.each_char do |ch|
         cps[i] = ch.ord.to_u32
         i += 1
       end
-      @cps      = cps
+      @cps = cps
       @clusters = Bench.count_clusters(@bytes)
-      @width    = UW.swidth(@text)
+      @width = UW.swidth(@text)
     end
   end
 
   record Result,
-    group  : String,
+    group : String,
     corpus : String,
-    bytes  : Int32,
-    items  : Int32,
-    entry  : Benchmark::IPS::Entry
+    bytes : Int32,
+    items : Int32,
+    entry : Benchmark::IPS::Entry
 
   def self.count_clusters(bytes : Bytes) : Int32
     off = 0
-    n   = 0
+    n = 0
     while off < bytes.size
       _, len = UW.width(bytes + off)
       off += len
@@ -77,13 +78,19 @@ module Bench
   end
 
   def self.iter_width(bytes : Bytes) : Int32
-    off   = 0
+    off = 0
     total = 0
     while off < bytes.size
       w, len = UW.width(bytes + off)
       total += w
       off += len
     end
+    total
+  end
+
+  def self.stream_width(bytes : Bytes) : Int32
+    total = 0
+    UW.clusters(bytes).each { |s| total += s.width }
     total
   end
 
@@ -143,6 +150,10 @@ module Bench
       list.each do |c|
         results << Result.new(UTF8_ITER, c.name, c.bytes.size, c.clusters,
           x.report("#{UTF8_ITER} #{c.name}") { consume(iter_width(c.bytes)) })
+      end
+      list.each do |c|
+        results << Result.new(UTF8_STREAM, c.name, c.bytes.size, c.clusters,
+          x.report("#{UTF8_STREAM} #{c.name}") { consume(stream_width(c.bytes)) })
       end
       list.each do |c|
         results << Result.new(STDLIB_SEG, c.name, c.bytes.size, c.clusters,

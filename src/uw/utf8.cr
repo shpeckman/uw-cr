@@ -2,7 +2,7 @@
 
 module UW
   @[AlwaysInline]
-  private def self.utf8_decode(s : Pointer(UInt8), n : Int32) : {UInt32, Int32, Bool}
+  protected def self.utf8_decode(s : Pointer(UInt8), n : Int32) : {UInt32, Int32, Bool}
     c = s[0]
     return {c.to_u32, 1, false} if c < 0x80
 

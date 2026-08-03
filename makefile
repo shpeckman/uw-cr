@@ -1,9 +1,11 @@
 # makefile
 
-.PHONY: spec build bench gen gen-refresh clean fetch-testdata
+.PHONY: all spec build bench gen gen-refresh clean fetch-testdata
 
 UCD_VERSION := 17.0.0
 TESTDATA := spec/data/GraphemeBreakTest.txt
+
+all: clean gen fetch-testdata spec
 
 spec:
 	crystal spec
@@ -22,4 +24,6 @@ fetch-testdata:
 	curl -fsSL "https://www.unicode.org/Public/$(UCD_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt" -o $(TESTDATA)
 
 clean:
-	rm -f uw-cr
+	rm -f tools/ucd/*
+	rm -f spec/data/*
+	rm -f src/uw/*.bin
