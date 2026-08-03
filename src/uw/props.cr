@@ -39,6 +39,12 @@ module UW
     end
 
     @[AlwaysInline]
+    protected def self.legacy_width(p : UInt16) : Int32
+      w = (p & 0x3).to_i32
+      w == 3 ? -1 : w
+    end
+
+    @[AlwaysInline]
     protected def self.gcb(p : UInt16) : UInt8
       ((p >> 2) & 0xF).to_u8
     end

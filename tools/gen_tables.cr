@@ -63,7 +63,7 @@ module Gen
       line = line.strip
       next if line.empty?
       cols = line.split(';').map(&.strip)
-      rng = cols[0]
+      rng  = cols[0]
       if dots = rng.index("..")
         lo = rng[0...dots].to_i(16)
         hi = rng[(dots + 2)..].to_i(16)
@@ -76,20 +76,20 @@ module Gen
   end
 
   def self.build_props : Array(UInt16)
-    gc = Array(String?).new(MAX, nil)
-    gbp = Array(String?).new(MAX, nil)
-    eaw = Array(String).new(MAX, "N")
-    incb = Array(String?).new(MAX, nil)
-    epres = BitArray.new(MAX)
+    gc      = Array(String?).new(MAX, nil)
+    gbp     = Array(String?).new(MAX, nil)
+    eaw     = Array(String).new(MAX, "N")
+    incb    = Array(String?).new(MAX, nil)
+    epres   = BitArray.new(MAX)
     extpict = BitArray.new(MAX)
 
     # General_Category from UnicodeData.txt, honoring First/Last range rows.
     pending : {Int32, String}? = nil
     File.each_line("#{CACHE_DIR}/UnicodeData.txt") do |raw|
-      f = raw.chomp.split(';')
-      cp = f[0].to_i(16)
+      f    = raw.chomp.split(';')
+      cp   = f[0].to_i(16)
       name = f[1]
-      cat = f[2]
+      cat  = f[2]
       if name.ends_with?(", First>")
         pending = {cp, cat}
         next
@@ -126,10 +126,10 @@ module Gen
     end
 
     props = Array(UInt16).new(MAX, 0_u16)
-    cp = 0
+    cp    = 0
     while cp < MAX
       cat = gc[cp]
-      g = gbp[cp]
+      g   = gbp[cp]
 
       w =
         if cat == "Cc"
@@ -162,14 +162,14 @@ module Gen
   # and record each block's index in stage1.
   def self.build_trie(props : Array(UInt16)) : {Array(UInt16), Array(UInt16)}
     n_blocks = MAX // BLOCK_SIZE
-    index = {} of Array(UInt16) => UInt16
-    blocks = [] of Array(UInt16)
-    stage1 = Array(UInt16).new(n_blocks)
+    index    = {} of Array(UInt16) => UInt16
+    blocks   = [] of Array(UInt16)
+    stage1   = Array(UInt16).new(n_blocks)
 
     b = 0
     while b < n_blocks
       block = props[(b * BLOCK_SIZE), BLOCK_SIZE]
-      idx = index[block]?
+      idx   = index[block]?
       unless idx
         idx = blocks.size.to_u16
         index[block] = idx
@@ -184,10 +184,10 @@ module Gen
     {stage1, stage2}
   end
 
-  BRK      = 0_u8
-  NOBRK    = 1_u8
-  CONSULT  = 2_u8
-  GCB_N    = 14
+  BRK     = 0_u8
+  NOBRK   = 1_u8
+  CONSULT = 2_u8
+  GCB_N   =   14
 
   C_OTHER       =  0
   C_CR          =  1
@@ -211,7 +211,7 @@ module Gen
   # rule precedence mirrors UAX #29 exactly.
   def self.build_break_table : Array(UInt8)
     tbl = Array(UInt8).new(GCB_N * GCB_N, BRK)
-    a = 0
+    a   = 0
     while a < GCB_N
       b = 0
       while b < GCB_N

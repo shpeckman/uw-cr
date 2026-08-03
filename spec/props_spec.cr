@@ -50,5 +50,10 @@ describe UW do
     it "is 0 for the zero-width joiner" do
       UW.width_cp(0x200D_u32).should eq(0)
     end
+
+    it "matches unicode width for a scalar in legacy mode" do
+      UW.width_cp(0x4E00_u32, UW::WidthMode::Legacy).should eq(2)
+      UW.width_cp('A'.ord.to_u32, UW::WidthMode::Legacy).should eq(1)
+    end
   end
 end

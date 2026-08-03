@@ -3,23 +3,23 @@
 module UW
   struct State
     def initialize
-      @prev_gcb = GCB_OTHER
-      @ri_parity = 0_u8
-      @saw_pict = false
-      @zwj_after_pict = false
-      @incb_consonant = false
+      @prev_gcb         = GCB_OTHER
+      @ri_parity        = 0_u8
+      @saw_pict         = false
+      @zwj_after_pict   = false
+      @incb_consonant   = false
       @incb_linker_seen = false
-      @has_prev = false
+      @has_prev         = false
     end
 
     def reset : Nil
-      @prev_gcb = GCB_OTHER
-      @ri_parity = 0_u8
-      @saw_pict = false
-      @zwj_after_pict = false
-      @incb_consonant = false
+      @prev_gcb         = GCB_OTHER
+      @ri_parity        = 0_u8
+      @saw_pict         = false
+      @zwj_after_pict   = false
+      @incb_consonant   = false
       @incb_linker_seen = false
-      @has_prev = false
+      @has_prev         = false
     end
 
     def grapheme_break(cp : UInt32) : Bool
@@ -27,14 +27,14 @@ module UW
     end
 
     def grapheme_break(cp : UInt32, p : UInt16) : Bool
-      gcb = UW::Props.gcb(p)
+      gcb  = UW::Props.gcb(p)
       pict = UW::Props.pict?(p)
       incb = UW::Props.incb(p)
 
       if !@has_prev
         brk = true
       else
-        a = @prev_gcb
+        a        = @prev_gcb
         decision = UW::BREAK_TABLE.to_unsafe[a.to_i32 * GCB_CLASSES + gcb.to_i32]
         if decision == 0_u8
           brk = true
@@ -58,25 +58,25 @@ module UW
       end
 
       if pict
-        @saw_pict = true
+        @saw_pict       = true
         @zwj_after_pict = false
       elsif gcb == GCB_EXTEND
         @zwj_after_pict = false
       elsif gcb == GCB_ZWJ
         @zwj_after_pict = @saw_pict
       else
-        @saw_pict = false
+        @saw_pict       = false
         @zwj_after_pict = false
       end
 
       if incb == INCB_CONSONANT
-        @incb_consonant = true
+        @incb_consonant   = true
         @incb_linker_seen = false
       elsif incb == INCB_LINKER
         @incb_linker_seen = true if @incb_consonant
       elsif incb == INCB_EXTEND
       else
-        @incb_consonant = false
+        @incb_consonant   = false
         @incb_linker_seen = false
       end
 

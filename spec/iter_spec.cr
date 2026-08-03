@@ -57,6 +57,45 @@ describe UW::Utf32Clusters do
       iter_utf32(c.cps).should eq(ref_utf32(c.cps))
     end
   end
+
+  it "tags tab, control and graphemic spans by kind" do
+    kinds = [] of UW::SpanKind
+    UW.clusters(SpecHelper.cps('a'.ord, 0x09, 0x1B, 'b'.ord)).each { |s| kinds << s.kind }
+    kinds.should eq([
+      UW::SpanKind::Graphemic,
+      UW::SpanKind::Tab,
+      UW::SpanKind::Control,
+      UW::SpanKind::Graphemic,
+    ])
+  end
+
+  it "tags a standalone CR and a standalone LF distinctly" do
+    cr = [] of UW::SpanKind
+    UW.clusters(SpecHelper.cps(0x0D, 'x'.ord)).each { |s| cr << s.kind }
+    cr.first.should eq(UW::SpanKind::CR)
+
+    lf = [] of UW::SpanKind
+    UW.clusters(SpecHelper.cps(0x0A, 'x'.ord)).each { |s| lf << s.kind }
+    lf.first.should eq(UW::SpanKind::LF)
+  end
+
+  it "tags a CR LF pair as a single CRLF span" do
+    spans = [] of {Int32, UW::SpanKind}
+    UW.clusters(SpecHelper.cps(0x0D, 0x0A, 'x'.ord)).each { |s| spans << {s.size, s.kind} }
+    spans.first.should eq({2, UW::SpanKind::CRLF})
+    spans.size.should eq(2)
+  end
+
+  it "reuses one iterator across buffers via reset" do
+    it0   = UW.clusters(SpecHelper.cps('a'.ord, 'b'.ord))
+    first = [] of Int32
+    it0.each { |s| first << s.size }
+    it0.reset(SpecHelper.cps(0x4E00, 0x4E01, 0x4E02))
+    second = [] of Int32
+    it0.each { |s| second << s.width }
+    first.should eq([1, 1])
+    second.should eq([2, 2, 2])
+  end
 end
 
 describe UW::Utf8Clusters do
@@ -89,6 +128,28 @@ describe UW::Utf8Clusters do
       bytes = s.to_slice
       iter_utf8(bytes).should eq(ref_utf8(bytes))
     end
+  end
+
+  it "tags an ASCII tab span as Tab" do
+    kinds = [] of UW::SpanKind
+    UW.clusters("a\tb".to_slice).each { |s| kinds << s.kind }
+    kinds.should eq([UW::SpanKind::Graphemic, UW::SpanKind::Tab, UW::SpanKind::Graphemic])
+  end
+
+  it "tags a CR LF pair as a single CRLF span on the utf8 path" do
+    spans = [] of {Int32, UW::SpanKind}
+    UW.clusters("\r\nx".to_slice).each { |s| spans << {s.size, s.kind} }
+    spans.first.should eq({2, UW::SpanKind::CRLF})
+    spans.size.should eq(2)
+  end
+
+  it "reuses one iterator across buffers via reset" do
+    it0 = UW.clusters("ab".to_slice)
+    it0.each { |_| }
+    it0.reset("\u4E00\u4E01".to_slice)
+    widths = [] of Int32
+    it0.each { |s| widths << s.width }
+    widths.should eq([2, 2])
   end
 
   it "sums iterator widths to match swidth over corpora" do
