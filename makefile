@@ -5,7 +5,7 @@
 UCD_VERSION := 17.0.0
 TESTDATA := spec/data/GraphemeBreakTest.txt
 
-all: clean gen spec
+all: clean gen
 
 spec:
 	crystal spec
@@ -13,7 +13,10 @@ spec:
 bench:
 	crystal run --release --no-debug bench/bench.cr
 
-gen: clean
+gen: 
+	rm -f tools/ucd/*
+	rm -f spec/data/*
+	rm -f src/uw/*.bin
 	crystal run tools/gen_tables.cr
 	mkdir -p spec/data
 	curl -fsSL "https://www.unicode.org/Public/$(UCD_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt" -o $(TESTDATA)
@@ -21,4 +24,3 @@ gen: clean
 clean:
 	rm -f tools/ucd/*
 	rm -f spec/data/*
-	rm -f src/uw/*.bin
