@@ -1,4 +1,3 @@
-<!-- README.md -->
 # uw-cr
 
 Unicode text measurement for Crystal: display width, grapheme-cluster segmentation, and column-budget truncation. Built for terminals and TUIs where you need to know how many columns a string occupies.
