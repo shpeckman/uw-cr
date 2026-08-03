@@ -63,7 +63,7 @@ module Gen
       line = line.strip
       next if line.empty?
       cols = line.split(';').map(&.strip)
-      rng = cols[0]
+      rng  = cols[0]
       if dots = rng.index("..")
         lo = rng[0...dots].to_i(16)
         hi = rng[(dots + 2)..].to_i(16)
@@ -76,20 +76,20 @@ module Gen
   end
 
   def self.build_props : Array(UInt16)
-    gc = Array(String?).new(MAX, nil)
-    gbp = Array(String?).new(MAX, nil)
-    eaw = Array(String).new(MAX, "N")
-    incb = Array(String?).new(MAX, nil)
-    epres = BitArray.new(MAX)
+    gc      = Array(String?).new(MAX, nil)
+    gbp     = Array(String?).new(MAX, nil)
+    eaw     = Array(String).new(MAX, "N")
+    incb    = Array(String?).new(MAX, nil)
+    epres   = BitArray.new(MAX)
     extpict = BitArray.new(MAX)
 
     # General_Category from UnicodeData.txt, honoring First/Last range rows.
     pending : {Int32, String}? = nil
     File.each_line("#{CACHE_DIR}/UnicodeData.txt") do |raw|
-      f = raw.chomp.split(';')
-      cp = f[0].to_i(16)
+      f    = raw.chomp.split(';')
+      cp   = f[0].to_i(16)
       name = f[1]
-      cat = f[2]
+      cat  = f[2]
       if name.ends_with?(", First>")
         pending = {cp, cat}
         next
@@ -126,10 +126,10 @@ module Gen
     end
 
     props = Array(UInt16).new(MAX, 0_u16)
-    cp = 0
+    cp    = 0
     while cp < MAX
       cat = gc[cp]
-      g = gbp[cp]
+      g   = gbp[cp]
 
       w =
         if cat == "Cc"
@@ -162,14 +162,14 @@ module Gen
   # and record each block's index in stage1.
   def self.build_trie(props : Array(UInt16)) : {Array(UInt16), Array(UInt16)}
     n_blocks = MAX // BLOCK_SIZE
-    index = {} of Array(UInt16) => UInt16
-    blocks = [] of Array(UInt16)
-    stage1 = Array(UInt16).new(n_blocks)
+    index    = {} of Array(UInt16) => UInt16
+    blocks   = [] of Array(UInt16)
+    stage1   = Array(UInt16).new(n_blocks)
 
     b = 0
     while b < n_blocks
       block = props[(b * BLOCK_SIZE), BLOCK_SIZE]
-      idx = index[block]?
+      idx   = index[block]?
       unless idx
         idx = blocks.size.to_u16
         index[block] = idx
@@ -182,6 +182,70 @@ module Gen
     stage2 = Array(UInt16).new(blocks.size * BLOCK_SIZE)
     blocks.each { |blk| blk.each { |v| stage2 << v } }
     {stage1, stage2}
+  end
+
+  BRK     = 0_u8
+  NOBRK   = 1_u8
+  CONSULT = 2_u8
+  GCB_N   =   14
+
+  C_OTHER       =  0
+  C_CR          =  1
+  C_LF          =  2
+  C_CONTROL     =  3
+  C_EXTEND      =  4
+  C_ZWJ         =  5
+  C_PREPEND     =  6
+  C_SPACINGMARK =  7
+  C_L           =  8
+  C_V           =  9
+  C_T           = 10
+  C_LV          = 11
+  C_LVT         = 12
+  C_RI          = 13
+
+  # Encodes the class-only grapheme-break decision for every ordered pair
+  # (prev_gcb, cur_gcb). CONSULT marks pairs whose outcome depends on runtime
+  # state (GB9c Indic conjunct, GB11 emoji ZWJ, GB12/13 regional indicators);
+  # the state machine resolves those. Every other pair is decided here. The
+  # rule precedence mirrors UAX #29 exactly.
+  def self.build_break_table : Array(UInt8)
+    tbl = Array(UInt8).new(GCB_N * GCB_N, BRK)
+    a   = 0
+    while a < GCB_N
+      b = 0
+      while b < GCB_N
+        tbl[a * GCB_N + b] =
+          if a == C_CR && b == C_LF
+            NOBRK
+          elsif a == C_CONTROL || a == C_CR || a == C_LF
+            BRK
+          elsif b == C_CONTROL || b == C_CR || b == C_LF
+            BRK
+          elsif a == C_L && (b == C_L || b == C_V || b == C_LV || b == C_LVT)
+            NOBRK
+          elsif (a == C_LV || a == C_V) && (b == C_V || b == C_T)
+            NOBRK
+          elsif (a == C_LVT || a == C_T) && b == C_T
+            NOBRK
+          elsif b == C_EXTEND || b == C_ZWJ
+            NOBRK
+          elsif b == C_SPACINGMARK
+            NOBRK
+          elsif a == C_PREPEND
+            NOBRK
+          elsif a == C_RI && b == C_RI
+            CONSULT
+          elsif b == C_OTHER
+            CONSULT
+          else
+            BRK
+          end
+        b += 1
+      end
+      a += 1
+    end
+    tbl
   end
 
   def self.write_blob(path : String, data : Array(UInt16))
@@ -202,9 +266,12 @@ module Gen
     stage1, stage2 = build_trie(props)
     STDERR.puts "stage1: #{stage1.size} entries, stage2: #{stage2.size // BLOCK_SIZE} blocks"
 
+    brk_table = build_break_table
+
     FileUtils.mkdir_p(OUT_DIR)
     write_blob("#{OUT_DIR}/stage1.bin", stage1)
     write_blob("#{OUT_DIR}/stage2.bin", stage2)
+    File.write("#{OUT_DIR}/break.bin", Bytes.new(brk_table.size) { |i| brk_table[i] })
 
     tables_src = <<-CR
     # src/uw/tables.cr
@@ -216,9 +283,11 @@ module Gen
       BLOCK_SIZE = #{BLOCK_SIZE}
       STAGE1_LEN = #{stage1.size}
       N_BLOCKS   = #{stage2.size // BLOCK_SIZE}
+      GCB_CLASSES = #{GCB_N}
 
       private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}
       private STAGE2_BLOB = {{ read_file("\#{__DIR__}/stage2.bin") }}
+      private BREAK_BLOB  = {{ read_file("\#{__DIR__}/break.bin") }}
 
       private def self.load_u16(blob : String, count : Int32) : Slice(UInt16)
         out = Slice(UInt16).new(count)
@@ -233,11 +302,12 @@ module Gen
 
       STAGE1 = load_u16(STAGE1_BLOB, STAGE1_LEN)
       STAGE2 = load_u16(STAGE2_BLOB, N_BLOCKS * BLOCK_SIZE)
+      BREAK_TABLE = BREAK_BLOB.to_slice
     end
     CR
     File.write("#{OUT_DIR}/tables.cr", tables_src + "\n")
 
-    STDERR.puts "wrote #{OUT_DIR}/stage1.bin, #{OUT_DIR}/stage2.bin, #{OUT_DIR}/tables.cr"
+    STDERR.puts "wrote #{OUT_DIR}/stage1.bin, #{OUT_DIR}/stage2.bin, #{OUT_DIR}/break.bin, #{OUT_DIR}/tables.cr"
   end
 end
 

@@ -5,28 +5,31 @@ module UW
     getter started : Bool
 
     def initialize
-      @width = 0
-      @started = false
+      @width             = 0
+      @started           = false
       @base_narrow_emoji = false
-      @ri_count = 0_u8
+      @ri_count          = 0_u8
     end
 
     def reset : Nil
-      @width = 0
-      @started = false
+      @width             = 0
+      @started           = false
       @base_narrow_emoji = false
-      @ri_count = 0_u8
+      @ri_count          = 0_u8
     end
 
     def push(cp : UInt32) : Nil
-      p = UW::Props.props(cp)
+      push(cp, UW::Props.props(cp))
+    end
+
+    def push(cp : UInt32, p : UInt16) : Nil
       gcb = UW::Props.gcb(p)
-      w = UW::Props.width(p)
+      w   = UW::Props.width(p)
 
       if gcb == GCB_RI
         @ri_count += 1
         if !@started
-          @width = 1
+          @width   = 1
           @started = true
         end
         @width = 2 if @ri_count == 2
@@ -43,8 +46,8 @@ module UW
       end
 
       if !@started
-        @started = true
-        @width = (w == 3) ? -1 : w
+        @started           = true
+        @width             = (w == 3) ? -1 : w
         @base_narrow_emoji = true if !UW::Props.epres?(p) && w != 2
       end
     end

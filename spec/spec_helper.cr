@@ -7,9 +7,9 @@ module SpecHelper
   DATA_DIR = "#{__DIR__}/data"
 
   record GraphemeCase,
-    line : Int32,
-    cps : Slice(UInt32),
-    breaks : Array(Bool),
+    line    : Int32,
+    cps     : Slice(UInt32),
+    breaks  : Array(Bool),
     comment : String
 
   def self.cps(*values : Int) : Slice(UInt32)
@@ -17,13 +17,13 @@ module SpecHelper
   end
 
   def self.grapheme_cases : Array(GraphemeCase)
-    path = "#{DATA_DIR}/GraphemeBreakTest.txt"
+    path  = "#{DATA_DIR}/GraphemeBreakTest.txt"
     cases = [] of GraphemeCase
     File.read_lines(path).each_with_index do |raw, idx|
       body = raw
       if hash = body.index('#')
         comment = body[(hash + 1)..].strip
-        body = body[0...hash]
+        body    = body[0...hash]
       else
         comment = ""
       end
@@ -31,7 +31,7 @@ module SpecHelper
       next if body.empty?
 
       tokens = body.split(/\s+/)
-      cps = [] of UInt32
+      cps    = [] of UInt32
       breaks = [] of Bool
       tokens.each do |tok|
         case tok

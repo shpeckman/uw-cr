@@ -35,13 +35,15 @@ module UW
     if n == 0
       return {0, 0}
     end
-    st = State.new
-    cl = Cluster.new
+    st  = State.new
+    cl  = Cluster.new
     ptr = cps.to_unsafe
-    i = 0
+    i   = 0
     while i < n
-      break if st.grapheme_break(ptr[i]) && cl.started
-      cl.push(ptr[i])
+      cp = ptr[i]
+      p  = Props.props(cp)
+      break if st.grapheme_break(cp, p) && cl.started
+      cl.push(cp, p)
       i += 1
     end
     {cl.display_width, i}
@@ -52,15 +54,16 @@ module UW
     if n == 0
       return {0, 0}
     end
-    st = State.new
-    cl = Cluster.new
+    st  = State.new
+    cl  = Cluster.new
     ptr = s.to_unsafe
-    i = 0
+    i   = 0
     while i < n
       cp, len, bad = utf8_decode(ptr + i, n - i)
       break if bad && policy.strict?
-      break if st.grapheme_break(cp) && cl.started
-      cl.push(cp)
+      p = Props.props(cp)
+      break if st.grapheme_break(cp, p) && cl.started
+      cl.push(cp, p)
       i += len
     end
     {cl.display_width, i}
@@ -85,17 +88,18 @@ module UW
   end
 
   def self.swidth(cps : Slice(UInt32), ctrl : CtrlPolicy = CtrlPolicy::Skip) : Int32
-    st = State.new
-    cl = Cluster.new
-    total = 0
+    st           = State.new
+    cl           = Cluster.new
+    total        = 0
     have_cluster = false
-    ptr = cps.to_unsafe
-    n = cps.size
+    ptr          = cps.to_unsafe
+    n            = cps.size
 
     i = 0
     while i < n
       cp = ptr[i]
-      if st.grapheme_break(cp) && have_cluster
+      p  = Props.props(cp)
+      if st.grapheme_break(cp, p) && have_cluster
         w = cl.display_width
         if w < 0
           return -1 if ctrl.fail?
@@ -104,7 +108,7 @@ module UW
         end
         cl.reset
       end
-      cl.push(cp)
+      cl.push(cp, p)
       have_cluster = true
       i += 1
     end
@@ -120,18 +124,19 @@ module UW
   end
 
   def self.swidth(s : Bytes, upolicy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip) : Int32
-    st = State.new
-    cl = Cluster.new
-    total = 0
+    st           = State.new
+    cl           = Cluster.new
+    total        = 0
     have_cluster = false
-    ptr = s.to_unsafe
-    n = s.size
+    ptr          = s.to_unsafe
+    n            = s.size
 
     i = 0
     while i < n
       cp, len, bad = utf8_decode(ptr + i, n - i)
       break if bad && upolicy.strict?
-      if st.grapheme_break(cp) && have_cluster
+      p = Props.props(cp)
+      if st.grapheme_break(cp, p) && have_cluster
         w = cl.display_width
         if w < 0
           return -1 if ctrl.fail?
@@ -140,7 +145,7 @@ module UW
         end
         cl.reset
       end
-      cl.push(cp)
+      cl.push(cp, p)
       have_cluster = true
       i += len
     end

@@ -30,7 +30,7 @@ module UW
     @[AlwaysInline]
     protected def self.props(cp : UInt32) : UInt16
       return 0_u16 if cp >= (STAGE1_LEN.to_u32 << BLOCK_BITS)
-      STAGE2[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
+      STAGE2.to_unsafe[STAGE1.to_unsafe[cp >> BLOCK_BITS].to_i32 * BLOCK_SIZE + (cp & (BLOCK_SIZE - 1)).to_i32]
     end
 
     @[AlwaysInline]

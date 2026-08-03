@@ -4,7 +4,7 @@ require "./spec_helper"
 
 private def cluster_count(cps : Slice(UInt32)) : Int32
   st = UW::State.new
-  n = 0
+  n  = 0
   cps.each { |cp| n += 1 if st.grapheme_break(cp) }
   n
 end
@@ -22,7 +22,7 @@ describe UW::State do
       cases.each do |c|
         st = UW::State.new
         c.cps.each_with_index do |cp, i|
-          got = st.grapheme_break(cp)
+          got  = st.grapheme_break(cp)
           want = c.breaks[i]
           if got != want
             failures << "line #{c.line} pos #{i}: got #{got}, want #{want} | #{c.comment}"

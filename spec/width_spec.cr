@@ -70,7 +70,7 @@ describe UW do
         next if c.cps.empty?
         # first cluster length = index of the second boundary
         expected = c.breaks.size
-        i = 1
+        i        = 1
         while i < c.breaks.size
           break if c.breaks[i]
           i += 1
@@ -107,7 +107,7 @@ describe UW do
     end
 
     it "sums UTF-8 and UTF-32 paths identically for a mixed string" do
-      s = "a\u00E9\u4E00\u{1F1E6}\u{1F1E7}"
+      s   = "a\u00E9\u4E00\u{1F1E6}\u{1F1E7}"
       cps = Slice(UInt32).new(s.size) { 0_u32 }
       s.each_char_with_index { |ch, i| cps[i] = ch.ord.to_u32 }
       UW.swidth(s).should eq(UW.swidth(cps))
