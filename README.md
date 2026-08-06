@@ -1,19 +1,21 @@
 # uw-cr
 
-Unicode text measurement and segmentation for Crystal: display width, grapheme clusters, word and line boundaries, column-budget truncation, and word wrapping. Built for terminals and TUIs where you need to know how many columns a string occupies and where it is allowed to break.
+Unicode text measurement and segmentation for Crystal: display width, grapheme clusters, word, sentence, and line boundaries, column-budget truncation, and word wrapping. Built for terminals and TUIs where you need to know how many columns a string occupies and where it is allowed to break.
 
-Targets [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/) and validates grapheme, word, and line breaking against the official `GraphemeBreakTest.txt`, `WordBreakTest.txt`, and `LineBreakTest.txt`.
+Targets [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/) and validates grapheme, word, sentence, and line breaking against the official `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `SentenceBreakTest.txt`, and `LineBreakTest.txt`.
 
 ## Features
 
 - **Display width** for single code points, first clusters, and whole strings.
 - **Grapheme segmentation** implementing [UAX #29](https://www.unicode.org/reports/tr29/), including Indic conjuncts (GB9c), emoji ZWJ sequences (GB11), and regional-indicator pairs (GB12/13).
 - **Word segmentation** implementing [UAX #29](https://www.unicode.org/reports/tr29/) word boundaries, including numeric and letter-internal punctuation.
+- **Sentence segmentation** implementing [UAX #29](https://www.unicode.org/reports/tr29/) sentence boundaries, including abbreviation and lowercase-continuation handling.
 - **Line breaking** implementing [UAX #14](https://www.unicode.org/reports/tr14/), distinguishing mandatory breaks from opportunities.
 - **Word wrapping** to a column budget, with optional hard-breaking of overlong words.
 - **Truncation** to a column budget that never splits a wide cluster across the boundary.
 - **Cluster iterators** over `Slice(UInt32)` and UTF-8 `Bytes`, resettable for reuse.
 - **Unicode and Legacy width modes**, plus terminal Mode 2027 negotiation.
+- **East-Asian ambiguous width**, opt-in, for terminals that render ambiguous characters double-wide.
 - **Zero dependencies.** Property tables are embedded at compile time via a two-stage trie.
 
 ## Installation
@@ -118,6 +120,26 @@ UW.word_next("can't stop")  # => 5  (the apostrophe stays inside the word)
 UW.word_next("3.14 pie")    # => 4  (the decimal point does not split the number)
 ```
 
+### Sentence segmentation
+
+`sentences` splits text at UAX #29 sentence boundaries, yielding a `SentenceSpan` (`width`, `size`) per sentence. Trailing separators and spaces stay with the sentence they follow, so the sizes always tile the input.
+
+```cr
+UW.sentences("Hello world. This is next.").each do |s|
+  puts s.size
+end
+# 13  13
+```
+
+`sentence_next` returns the span of the first sentence, which is useful for stepping through a paragraph.
+
+```cr
+UW.sentence_next("The cat sat. The dog ran.")  # => 13  (through the space after the period)
+UW.sentence_next("etc. and so on")             # => 14  (a lowercase word continues the sentence)
+```
+
+Boundary detection follows the algorithm, not an abbreviation dictionary: a period followed by a space and a capital letter is treated as a break, so `"Dr. Smith"` splits after `"Dr. "`.
+
 ### Line breaking
 
 `line_breaks` yields a `BreakSpan` (`width`, `size`, `mandatory`) for each segment ending at a break opportunity. Trailing spaces stay with the segment they follow, matching UAX #14.
@@ -202,6 +224,21 @@ UW.swidth("\u2764\uFE0F", opts: UW::WidthOpts.legacy)   # => 1
 opts = UW::WidthOpts.new(UW::WidthMode::Unicode, cap: 0)
 UW.swidth("👨‍👩‍👧‍👦", opts: opts)  # sums the full sequence
 ```
+
+### East-Asian ambiguous width
+
+[UAX #11](https://www.unicode.org/reports/tr11/) marks some characters as *ambiguous*: narrow in a Western context but wide in an East-Asian one. They measure as width `1` by default. Setting `ambiguous_wide` promotes them to `2`, matching terminals configured for CJK rendering. It composes with either width mode.
+
+```cr
+wide = UW::WidthOpts.unicode.with_ambiguous_wide(true)
+
+UW.swidth("\u00A7")               # => 1  (section sign, narrow by default)
+UW.swidth("\u00A7", opts: wide)   # => 2  (widened)
+
+UW.width_cp(0x2190_u32, wide)     # => 2  (leftwards arrow)
+```
+
+Only ambiguous characters are affected; intrinsically wide, narrow, and zero-width characters keep their width. The flag also feeds `width`, `truncate`, and the cluster iterators, so a promoted cluster is never split across a column budget.
 
 ### Terminal Mode 2027
 
