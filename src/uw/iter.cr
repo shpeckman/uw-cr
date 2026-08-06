@@ -10,7 +10,7 @@ module UW
       @i         = 0
       @char_i    = 0
       @st        = State.new
-      @cl        = Cluster.new(@opts.cap, @opts.mode)
+      @cl        = Cluster.new(@opts.cap, @opts.mode, @opts.ambiguous_wide)
       @have_seed = false
       @seed_cp   = 0_u32
       @seed_p    = 0_u32
@@ -24,7 +24,7 @@ module UW
       @i      = 0
       @char_i = 0
       @st.reset
-      @cl.configure(opts.cap, opts.mode)
+      @cl.configure(opts.cap, opts.mode, opts.ambiguous_wide)
       @cl.reset
       @have_seed = false
       @seed_cp   = 0_u32
@@ -78,7 +78,7 @@ module UW
       @n         = @bytes.size
       @i         = 0
       @st        = State.new
-      @cl        = Cluster.new(@opts.cap, @opts.mode)
+      @cl        = Cluster.new(@opts.cap, @opts.mode, @opts.ambiguous_wide)
       @have_seed = false
       @seed_cp   = 0_u32
       @seed_p    = 0_u32
@@ -93,7 +93,7 @@ module UW
       @n      = bytes.size
       @i      = 0
       @st.reset
-      @cl.configure(opts.cap, opts.mode)
+      @cl.configure(opts.cap, opts.mode, opts.ambiguous_wide)
       @cl.reset
       @have_seed = false
       @seed_cp   = 0_u32

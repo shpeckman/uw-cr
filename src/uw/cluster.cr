@@ -14,7 +14,7 @@ module UW
     getter started : Bool
     getter cap     : Int32
 
-    def initialize(@cap : Int32 = CLUSTER_WIDTH_CAP, @mode : WidthMode = WidthMode::Unicode)
+    def initialize(@cap : Int32 = CLUSTER_WIDTH_CAP, @mode : WidthMode = WidthMode::Unicode, @ambiguous : Bool = false)
       @width             = 0
       @started           = false
       @base_narrow_emoji = false
@@ -38,9 +38,10 @@ module UW
       @count             = 0
     end
 
-    def configure(cap : Int32, mode : WidthMode) : Nil
-      @cap  = cap
-      @mode = mode
+    def configure(cap : Int32, mode : WidthMode, ambiguous : Bool = false) : Nil
+      @cap       = cap
+      @mode      = mode
+      @ambiguous = ambiguous
     end
 
     def push(cp : UInt32) : Nil
@@ -56,9 +57,11 @@ module UW
 
       gcb = UW::Props.gcb(p)
       w   = UW::Props.width(p)
+      w   = 2 if @ambiguous && w == 1 && UW::Props.ambiguous?(p)
 
       if @mode.legacy?
         lw = UW::Props.legacy_width(p)
+        lw = 2 if @ambiguous && lw == 1 && UW::Props.ambiguous?(p)
         if !@started
           @started    = true
           @legacy_sum = lw < 0 ? -1 : lw

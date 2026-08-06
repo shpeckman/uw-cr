@@ -15,26 +15,31 @@ module UW
   end
 
   struct WidthOpts
-    getter mode : WidthMode
-    getter cap  : Int32
+    getter mode           : WidthMode
+    getter cap            : Int32
+    getter ambiguous_wide : Bool
 
-    def initialize(@mode : WidthMode = WidthMode::Unicode, @cap : Int32 = CLUSTER_WIDTH_CAP)
+    def initialize(@mode : WidthMode = WidthMode::Unicode, @cap : Int32 = CLUSTER_WIDTH_CAP, @ambiguous_wide : Bool = false)
     end
 
     def self.unicode : WidthOpts
-      new(WidthMode::Unicode, CLUSTER_WIDTH_CAP)
+      new(WidthMode::Unicode, CLUSTER_WIDTH_CAP, false)
     end
 
     def self.legacy : WidthOpts
-      new(WidthMode::Legacy, CLUSTER_WIDTH_CAP)
+      new(WidthMode::Legacy, CLUSTER_WIDTH_CAP, false)
     end
 
     def with_mode(mode : WidthMode) : WidthOpts
-      WidthOpts.new(mode, @cap)
+      WidthOpts.new(mode, @cap, @ambiguous_wide)
     end
 
     def with_cap(cap : Int32) : WidthOpts
-      WidthOpts.new(@mode, cap)
+      WidthOpts.new(@mode, cap, @ambiguous_wide)
+    end
+
+    def with_ambiguous_wide(ambiguous_wide : Bool) : WidthOpts
+      WidthOpts.new(@mode, @cap, ambiguous_wide)
     end
   end
 

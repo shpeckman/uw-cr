@@ -4,7 +4,7 @@
 
 UCD_VERSION := 17.0.0
 AUX_URL     := https://www.unicode.org/Public/$(UCD_VERSION)/ucd/auxiliary
-TESTS       := GraphemeBreakTest WordBreakTest LineBreakTest
+TESTS       := GraphemeBreakTest WordBreakTest SentenceBreakTest LineBreakTest
 
 all: clean gen
 
