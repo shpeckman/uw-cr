@@ -1,6 +1,12 @@
 # makefile
+EXAMPLES := $(wildcard examples/*.cr)
 
-.PHONY: all setup setup-refresh clean spec bench
+$(EXAMPLES):
+	@echo "==> $@"
+	@crystal run $@
+	@echo
+	
+.PHONY: all setup setup-refresh clean spec bench examples $(EXAMPLES)
 
 all: setup
 
@@ -18,3 +24,5 @@ spec:
 
 bench:
 	crystal run --release --no-debug bench/bench.cr
+
+examples: $(EXAMPLES)
