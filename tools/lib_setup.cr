@@ -1,14 +1,23 @@
-# tools/gen_tables.cr
+# tools/lib_setup.cr
 
 require "http/client"
 require "file_utils"
 require "bit_array"
 
-module Gen
+module LibSetup
   UCD_VERSION = "17.0.0"
   BASE_URL    = "https://www.unicode.org/Public/#{UCD_VERSION}/ucd"
   CACHE_DIR   = "#{__DIR__}/ucd"
   OUT_DIR     = "#{__DIR__}/../src/uw"
+  SPEC_DIR    = "#{__DIR__}/../spec/data"
+
+  TEST_BASE_URL = "#{BASE_URL}/auxiliary"
+  TEST_FILES    = {
+    "GraphemeBreakTest.txt",
+    "WordBreakTest.txt",
+    "SentenceBreakTest.txt",
+    "LineBreakTest.txt",
+  }
 
   MAX        = 0x110000
   BLOCK_SIZE =      256
@@ -359,8 +368,39 @@ module Gen
     File.write(path, bytes)
   end
 
+  def self.clean
+    STDERR.puts "cleaning generated artifacts"
+    FileUtils.rm_rf(CACHE_DIR)
+    Dir.glob("#{OUT_DIR}/*.bin").each { |f| File.delete(f) }
+    if Dir.exists?(SPEC_DIR)
+      Dir.glob("#{SPEC_DIR}/*").each { |f| File.delete(f) if File.file?(f) }
+    end
+  end
+
+  def self.fetch_tests(refresh : Bool)
+    FileUtils.mkdir_p(SPEC_DIR)
+    TEST_FILES.each do |name|
+      path = "#{SPEC_DIR}/#{name}"
+      next if File.exists?(path) && !refresh
+      url = "#{TEST_BASE_URL}/#{name}"
+      STDERR.puts "fetching #{url}"
+      body = HTTP::Client.get(url) do |resp|
+        raise "GET #{url} -> #{resp.status_code}" unless resp.success?
+        resp.body_io.gets_to_end
+      end
+      File.write(path, body)
+    end
+  end
+
   def self.run
+    if ARGV.includes?("--clean-only")
+      clean
+      STDERR.puts "clean complete"
+      return
+    end
+
     refresh = ARGV.includes?("--refresh")
+    clean if refresh
     fetch(refresh)
 
     STDERR.puts "building packed properties for #{MAX} code points"
@@ -425,7 +465,11 @@ module Gen
     File.write("#{OUT_DIR}/tables.cr", tables_src + "\n")
 
     STDERR.puts "wrote #{OUT_DIR}/stage1.bin, #{OUT_DIR}/stage2.bin, #{OUT_DIR}/break.bin, #{OUT_DIR}/tables.cr"
+
+    fetch_tests(refresh)
+
+    STDERR.puts "setup complete"
   end
 end
 
-Gen.run
+LibSetup.run
