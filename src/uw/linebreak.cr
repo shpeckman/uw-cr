@@ -16,9 +16,9 @@ module UW
   private LB_F_DOTC   = 16_u8
 
   struct LineUnit
-    getter cls : UInt8
-    getter flags : UInt8
-    getter size : Int32
+    getter cls      : UInt8
+    getter flags    : UInt8
+    getter size     : Int32
     getter ends_zwj : Bool
 
     def initialize(@cls : UInt8 = LB_SOT, @flags : UInt8 = 0_u8, @size : Int32 = 0, @ends_zwj : Bool = false)
@@ -278,14 +278,14 @@ module UW
 
   struct Utf32LineBreaks
     def initialize(@cps : Slice(UInt32), @opts : WidthOpts = WidthOpts.unicode)
-      @ptr    = @cps.to_unsafe
-      @n      = @cps.size
-      @i      = 0
-      @pos    = 0
-      @st     = LineState.new
-      @cur    = LineUnit.new
-      @n1     = LineUnit.new
-      @n2     = LineUnit.new
+      @ptr     = @cps.to_unsafe
+      @n       = @cps.size
+      @i       = 0
+      @pos     = 0
+      @st      = LineState.new
+      @cur     = LineUnit.new
+      @n1      = LineUnit.new
+      @n2      = LineUnit.new
       @has_cur = false
       @has_n1  = false
       @has_n2  = false
@@ -293,16 +293,16 @@ module UW
     end
 
     def reset(cps : Slice(UInt32), opts : WidthOpts = @opts) : Nil
-      @cps    = cps
-      @opts   = opts
-      @ptr    = cps.to_unsafe
-      @n      = cps.size
-      @i      = 0
-      @pos    = 0
+      @cps  = cps
+      @opts = opts
+      @ptr  = cps.to_unsafe
+      @n    = cps.size
+      @i    = 0
+      @pos  = 0
       @st.reset
-      @cur    = LineUnit.new
-      @n1     = LineUnit.new
-      @n2     = LineUnit.new
+      @cur     = LineUnit.new
+      @n1      = LineUnit.new
+      @n2      = LineUnit.new
       @has_cur = false
       @has_n1  = false
       @has_n2  = false
@@ -392,14 +392,14 @@ module UW
 
   struct Utf8LineBreaks
     def initialize(@bytes : Bytes, @policy : Utf8Policy = Utf8Policy::Replace, @opts : WidthOpts = WidthOpts.unicode)
-      @ptr    = @bytes.to_unsafe
-      @n      = @bytes.size
-      @i      = 0
-      @pos    = 0
-      @st     = LineState.new
-      @cur    = LineUnit.new
-      @n1     = LineUnit.new
-      @n2     = LineUnit.new
+      @ptr     = @bytes.to_unsafe
+      @n       = @bytes.size
+      @i       = 0
+      @pos     = 0
+      @st      = LineState.new
+      @cur     = LineUnit.new
+      @n1      = LineUnit.new
+      @n2      = LineUnit.new
       @has_cur = false
       @has_n1  = false
       @has_n2  = false
@@ -415,9 +415,9 @@ module UW
       @i      = 0
       @pos    = 0
       @st.reset
-      @cur    = LineUnit.new
-      @n1     = LineUnit.new
-      @n2     = LineUnit.new
+      @cur     = LineUnit.new
+      @n1      = LineUnit.new
+      @n2      = LineUnit.new
       @has_cur = false
       @has_n1  = false
       @has_n2  = false

@@ -165,7 +165,7 @@ module Gen
       f = line.split(';').map(&.strip)
       next unless f.size >= 2 && f[0] == "lb"
       short = f[1]
-      i = 1
+      i     = 1
       while i < f.size
         lb_alias[f[i]] = short
         i += 1

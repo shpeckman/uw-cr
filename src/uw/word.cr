@@ -117,11 +117,11 @@ module UW
     end
 
     def reset(cps : Slice(UInt32), opts : WidthOpts = @opts) : Nil
-      @cps       = cps
-      @opts      = opts
-      @ptr       = cps.to_unsafe
-      @n         = cps.size
-      @i         = 0
+      @cps  = cps
+      @opts = opts
+      @ptr  = cps.to_unsafe
+      @n    = cps.size
+      @i    = 0
       @st.reset
       @have_seed = false
       @seed_cp   = 0_u32
@@ -151,8 +151,8 @@ module UW
       end
 
       while @i < @n
-        cp        = @ptr[@i]
-        p         = UW::Props.props(cp)
+        cp = @ptr[@i]
+        p  = UW::Props.props(cp)
         nxt, hasn = peek_sig(@i + 1)
         if @st.word_break(cp, p, nxt, hasn) && consumed > 0
           @seed_cp   = cp
@@ -187,12 +187,12 @@ module UW
     end
 
     def reset(bytes : Bytes, policy : Utf8Policy = @policy, opts : WidthOpts = @opts) : Nil
-      @bytes     = bytes
-      @policy    = policy
-      @opts      = opts
-      @ptr       = bytes.to_unsafe
-      @n         = bytes.size
-      @i         = 0
+      @bytes  = bytes
+      @policy = policy
+      @opts   = opts
+      @ptr    = bytes.to_unsafe
+      @n      = bytes.size
+      @i      = 0
       @st.reset
       @have_seed = false
       @seed_len  = 0
@@ -229,7 +229,7 @@ module UW
       while @i < @n
         cp, len, bad = UW.utf8_decode(@ptr + @i, @n - @i)
         break if bad && @policy.strict?
-        p         = UW::Props.props(cp)
+        p = UW::Props.props(cp)
         nxt, hasn = peek_sig(@i + len)
         if @st.word_break(cp, p, nxt, hasn) && consumed > 0
           @seed_len  = len

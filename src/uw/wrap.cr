@@ -4,9 +4,9 @@ module UW
   record Line, offset : Int32, size : Int32, width : Int32, mandatory : Bool
 
   struct WrapOpts
-    getter width : WidthOpts
+    getter width          : WidthOpts
     getter break_overlong : Bool
-    getter trim : Bool
+    getter trim           : Bool
 
     def initialize(@width : WidthOpts = WidthOpts.unicode, @break_overlong : Bool = true, @trim : Bool = true)
     end
@@ -80,11 +80,11 @@ module UW
     end
 
     private def measure(off : Int32, size : Int32) : {Int32, Int32, Int32}
-      w      = 0
-      tw     = 0
-      ts     = 0
-      cur    = 0
-      it     = Utf32Clusters.new(@cps[off, size], @opts.width)
+      w   = 0
+      tw  = 0
+      ts  = 0
+      cur = 0
+      it  = Utf32Clusters.new(@cps[off, size], @opts.width)
       it.each do |span|
         cw = span.width < 0 ? 0 : span.width
         w += cw
@@ -128,9 +128,9 @@ module UW
     end
 
     private def emit : Line
-      size  = @opts.trim ? @acc_tsize : @acc_size
-      width = @opts.trim ? @acc_twidth : @acc_width
-      line  = Line.new(@line_off, size, width, @acc_mand)
+      size        = @opts.trim ? @acc_tsize : @acc_size
+      width       = @opts.trim ? @acc_twidth : @acc_width
+      line        = Line.new(@line_off, size, width, @acc_mand)
       @acc_size   = 0
       @acc_width  = 0
       @acc_tsize  = 0
@@ -235,9 +235,9 @@ module UW
         cw = span.width < 0 ? 0 : span.width
         w += cw
         cur += span.size
-        base     = off + cur - span.size
+        base = off + cur - span.size
         cp, _, _ = UW.utf8_decode(ptr + base, @bytes.size - base)
-        cls      = UW::Props.lb(UW::Props.props(cp))
+        cls = UW::Props.lb(UW::Props.props(cp))
         unless UW.trimmable?(cls)
           tw = w
           ts = cur
@@ -276,9 +276,9 @@ module UW
     end
 
     private def emit : Line
-      size  = @opts.trim ? @acc_tsize : @acc_size
-      width = @opts.trim ? @acc_twidth : @acc_width
-      line  = Line.new(@line_off, size, width, @acc_mand)
+      size        = @opts.trim ? @acc_tsize : @acc_size
+      width       = @opts.trim ? @acc_twidth : @acc_width
+      line        = Line.new(@line_off, size, width, @acc_mand)
       @acc_size   = 0
       @acc_width  = 0
       @acc_tsize  = 0
