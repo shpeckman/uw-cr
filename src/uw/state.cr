@@ -26,7 +26,7 @@ module UW
       grapheme_break(cp, UW::Props.props(cp))
     end
 
-    def grapheme_break(cp : UInt32, p : UInt16) : Bool
+    def grapheme_break(cp : UInt32, p : UInt32) : Bool
       gcb  = UW::Props.gcb(p)
       pict = UW::Props.pict?(p)
       incb = UW::Props.incb(p)

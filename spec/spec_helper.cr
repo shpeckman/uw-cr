@@ -17,7 +17,19 @@ module SpecHelper
   end
 
   def self.grapheme_cases : Array(GraphemeCase)
-    path  = "#{DATA_DIR}/GraphemeBreakTest.txt"
+    break_cases("GraphemeBreakTest.txt")
+  end
+
+  def self.word_cases : Array(GraphemeCase)
+    break_cases("WordBreakTest.txt")
+  end
+
+  def self.line_cases : Array(GraphemeCase)
+    break_cases("LineBreakTest.txt")
+  end
+
+  def self.break_cases(file : String) : Array(GraphemeCase)
+    path  = "#{DATA_DIR}/#{file}"
     cases = [] of GraphemeCase
     File.read_lines(path).each_with_index do |raw, idx|
       body = raw

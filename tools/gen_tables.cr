@@ -1,10 +1,4 @@
 # tools/gen_tables.cr
-#
-# Regenerates src/uw/stage1.bin and src/uw/stage2.bin from the raw Unicode
-# Character Database. Run: crystal run tools/gen_tables.cr
-#
-# UCD files are fetched into tools/ucd/ and reused on subsequent runs. Pass
-# --refresh to re-download.
 
 require "http/client"
 require "file_utils"
@@ -24,6 +18,9 @@ module Gen
     "EastAsianWidth.txt"        => "EastAsianWidth.txt",
     "DerivedCoreProperties.txt" => "DerivedCoreProperties.txt",
     "GraphemeBreakProperty.txt" => "auxiliary/GraphemeBreakProperty.txt",
+    "WordBreakProperty.txt"     => "auxiliary/WordBreakProperty.txt",
+    "DerivedLineBreak.txt"      => "extracted/DerivedLineBreak.txt",
+    "PropertyValueAliases.txt"  => "PropertyValueAliases.txt",
     "emoji-data.txt"            => "emoji/emoji-data.txt",
   }
 
@@ -36,6 +33,29 @@ module Gen
   INCB_CODE = {"Consonant" => 1, "Extend" => 2, "Linker" => 3}
 
   ZERO_WIDTH_GCB = {"Extend", "ZWJ", "Prepend", "SpacingMark"}
+
+  WB_CODE = {
+    "CR" => 1, "LF" => 2, "Newline" => 3, "Extend" => 4, "ZWJ" => 5,
+    "Format" => 6, "Regional_Indicator" => 7, "WSegSpace" => 8,
+    "ALetter" => 9, "Hebrew_Letter" => 10, "Katakana" => 11, "Numeric" => 12,
+    "ExtendNumLet" => 13, "MidLetter" => 14, "MidNum" => 15, "MidNumLet" => 16,
+    "Single_Quote" => 17, "Double_Quote" => 18,
+  }
+  WB_N = 19
+
+  LB_CODE = {
+    "AL" => 0, "BK" => 1, "CR" => 2, "LF" => 3, "NL" => 4, "SP" => 5,
+    "ZW" => 6, "ZWJ" => 7, "CM" => 8, "WJ" => 9, "GL" => 10, "CL" => 11,
+    "CP" => 12, "EX" => 13, "IS" => 14, "SY" => 15, "OP" => 16, "QU" => 17,
+    "NS" => 18, "B2" => 19, "HY" => 20, "HH" => 21, "BA" => 22, "BB" => 23,
+    "NU" => 24, "PR" => 25, "PO" => 26, "ID" => 27, "IN" => 28, "EB" => 29,
+    "EM" => 30, "H2" => 31, "H3" => 32, "JL" => 33, "JV" => 34, "JT" => 35,
+    "HL" => 36, "RI" => 37, "CB" => 38, "AK" => 39, "AP" => 40, "AS" => 41,
+    "VF" => 42, "VI" => 43,
+  }
+  LB_N = 44
+
+  DOTTED_CIRCLE = 0x25CC
 
   def self.fetch(refresh : Bool)
     FileUtils.mkdir_p(CACHE_DIR)
@@ -52,8 +72,6 @@ module Gen
     end
   end
 
-  # Iterates data lines of a UCD file, yielding {lo, hi, fields} where fields
-  # are the semicolon-separated columns after the code-point range.
   def self.each_range(local : String, &)
     File.each_line("#{CACHE_DIR}/#{local}") do |raw|
       line = raw
@@ -75,15 +93,16 @@ module Gen
     end
   end
 
-  def self.build_props : Array(UInt16)
+  def self.build_props : Array(UInt32)
     gc      = Array(String?).new(MAX, nil)
     gbp     = Array(String?).new(MAX, nil)
+    wbp     = Array(String?).new(MAX, nil)
+    lbp     = Array(String?).new(MAX, nil)
     eaw     = Array(String).new(MAX, "N")
     incb    = Array(String?).new(MAX, nil)
     epres   = BitArray.new(MAX)
     extpict = BitArray.new(MAX)
 
-    # General_Category from UnicodeData.txt, honoring First/Last range rows.
     pending : {Int32, String}? = nil
     File.each_line("#{CACHE_DIR}/UnicodeData.txt") do |raw|
       f    = raw.chomp.split(';')
@@ -112,6 +131,16 @@ module Gen
       (lo..hi).each { |cp| gbp[cp] = v }
     end
 
+    each_range("WordBreakProperty.txt") do |lo, hi, cols|
+      v = cols[1]
+      (lo..hi).each { |cp| wbp[cp] = v }
+    end
+
+    each_range("DerivedLineBreak.txt") do |lo, hi, cols|
+      v = cols[1]
+      (lo..hi).each { |cp| lbp[cp] = v }
+    end
+
     each_range("emoji-data.txt") do |lo, hi, cols|
       case cols[1]
       when "Emoji_Presentation"    then (lo..hi).each { |cp| epres[cp] = true }
@@ -125,11 +154,49 @@ module Gen
       (lo..hi).each { |cp| incb[cp] = v }
     end
 
-    props = Array(UInt16).new(MAX, 0_u16)
+    lb_alias = {} of String => String
+    File.each_line("#{CACHE_DIR}/PropertyValueAliases.txt") do |raw|
+      line = raw
+      if h = line.index('#')
+        line = line[0...h]
+      end
+      line = line.strip
+      next if line.empty?
+      f = line.split(';').map(&.strip)
+      next unless f.size >= 2 && f[0] == "lb"
+      short = f[1]
+      i = 1
+      while i < f.size
+        lb_alias[f[i]] = short
+        i += 1
+      end
+    end
+
+    lb_default = Array(String).new(MAX, "XX")
+    File.each_line("#{CACHE_DIR}/DerivedLineBreak.txt") do |raw|
+      line = raw.strip
+      next unless line.starts_with?("# @missing:")
+      body = line[11..].strip
+      f    = body.split(';').map(&.strip)
+      next if f.size < 2
+      rng = f[0]
+      v   = lb_alias[f[1]]? || "XX"
+      if dots = rng.index("..")
+        lo = rng[0...dots].to_i(16)
+        hi = rng[(dots + 2)..].to_i(16)
+      else
+        lo = hi = rng.to_i(16)
+      end
+      hi = MAX - 1 if hi >= MAX
+      (lo..hi).each { |cp| lb_default[cp] = v }
+    end
+
+    props = Array(UInt32).new(MAX, 0_u32)
     cp    = 0
     while cp < MAX
       cat = gc[cp]
       g   = gbp[cp]
+      ea  = eaw[cp]
 
       w =
         if cat == "Cc"
@@ -138,32 +205,48 @@ module Gen
           1
         elsif (g && ZERO_WIDTH_GCB.includes?(g)) || cat == "Cf"
           0
-        elsif eaw[cp] == "W" || eaw[cp] == "F" || epres[cp]
+        elsif ea == "W" || ea == "F" || epres[cp]
           2
         else
           1
         end
 
-      packed = w
-      packed |= (g ? (GCB_CODE[g]? || 0) : 0) << 2
-      packed |= 0x40 if extpict[cp]
-      packed |= 0x80 if epres[cp]
-      if iv = incb[cp]
-        packed |= (INCB_CODE[iv]? || 0) << 8
-      end
+      raw_lb = lbp[cp] || lb_default[cp]
+      lb =
+        case raw_lb
+        when "AI", "SG", "XX" then "AL"
+        when "CJ"             then "NS"
+        when "SA"             then (cat == "Mn" || cat == "Mc") ? "CM" : "AL"
+        else                       raw_lb
+        end
 
-      props[cp] = packed.to_u16
+      wb = wbp[cp]
+
+      packed = w.to_u32
+      packed |= ((g ? (GCB_CODE[g]? || 0) : 0) << 2).to_u32
+      packed |= 0x40_u32 if extpict[cp]
+      packed |= 0x80_u32 if epres[cp]
+      if iv = incb[cp]
+        packed |= ((INCB_CODE[iv]? || 0) << 8).to_u32
+      end
+      packed |= ((wb ? (WB_CODE[wb]? || 0) : 0).to_u32 << 10)
+      packed |= ((LB_CODE[lb]? || 0).to_u32 << 15)
+      packed |= (1_u32 << 21) if cat == "Pi"
+      packed |= (1_u32 << 22) if cat == "Pf"
+      packed |= (1_u32 << 23) if ea == "F" || ea == "W" || ea == "H"
+      packed |= (1_u32 << 24) if extpict[cp] && cat.nil?
+      packed |= (1_u32 << 25) if cp == DOTTED_CIRCLE
+
+      props[cp] = packed
       cp += 1
     end
     props
   end
 
-  # Two-stage trie: split into 256-entry blocks, deduplicate identical blocks,
-  # and record each block's index in stage1.
-  def self.build_trie(props : Array(UInt16)) : {Array(UInt16), Array(UInt16)}
+  def self.build_trie(props : Array(UInt32)) : {Array(UInt16), Array(UInt32)}
     n_blocks = MAX // BLOCK_SIZE
-    index    = {} of Array(UInt16) => UInt16
-    blocks   = [] of Array(UInt16)
+    index    = {} of Array(UInt32) => UInt16
+    blocks   = [] of Array(UInt32)
     stage1   = Array(UInt16).new(n_blocks)
 
     b = 0
@@ -179,7 +262,7 @@ module Gen
       b += 1
     end
 
-    stage2 = Array(UInt16).new(blocks.size * BLOCK_SIZE)
+    stage2 = Array(UInt32).new(blocks.size * BLOCK_SIZE)
     blocks.each { |blk| blk.each { |v| stage2 << v } }
     {stage1, stage2}
   end
@@ -204,11 +287,6 @@ module Gen
   C_LVT         = 12
   C_RI          = 13
 
-  # Encodes the class-only grapheme-break decision for every ordered pair
-  # (prev_gcb, cur_gcb). CONSULT marks pairs whose outcome depends on runtime
-  # state (GB9c Indic conjunct, GB11 emoji ZWJ, GB12/13 regional indicators);
-  # the state machine resolves those. Every other pair is decided here. The
-  # rule precedence mirrors UAX #29 exactly.
   def self.build_break_table : Array(UInt8)
     tbl = Array(UInt8).new(GCB_N * GCB_N, BRK)
     a   = 0
@@ -248,10 +326,18 @@ module Gen
     tbl
   end
 
-  def self.write_blob(path : String, data : Array(UInt16))
+  def self.write_u16(path : String, data : Array(UInt16))
     bytes = Bytes.new(data.size * 2)
     data.each_with_index do |v, i|
       IO::ByteFormat::LittleEndian.encode(v, bytes[i * 2, 2])
+    end
+    File.write(path, bytes)
+  end
+
+  def self.write_u32(path : String, data : Array(UInt32))
+    bytes = Bytes.new(data.size * 4)
+    data.each_with_index do |v, i|
+      IO::ByteFormat::LittleEndian.encode(v, bytes[i * 4, 4])
     end
     File.write(path, bytes)
   end
@@ -269,8 +355,8 @@ module Gen
     brk_table = build_break_table
 
     FileUtils.mkdir_p(OUT_DIR)
-    write_blob("#{OUT_DIR}/stage1.bin", stage1)
-    write_blob("#{OUT_DIR}/stage2.bin", stage2)
+    write_u16("#{OUT_DIR}/stage1.bin", stage1)
+    write_u32("#{OUT_DIR}/stage2.bin", stage2)
     File.write("#{OUT_DIR}/break.bin", Bytes.new(brk_table.size) { |i| brk_table[i] })
 
     tables_src = <<-CR
@@ -284,6 +370,8 @@ module Gen
       STAGE1_LEN = #{stage1.size}
       N_BLOCKS   = #{stage2.size // BLOCK_SIZE}
       GCB_CLASSES = #{GCB_N}
+      WB_CLASSES = #{WB_N}
+      LB_CLASSES = #{LB_N}
 
       private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}
       private STAGE2_BLOB = {{ read_file("\#{__DIR__}/stage2.bin") }}
@@ -300,8 +388,19 @@ module Gen
         out
       end
 
+      private def self.load_u32(blob : String, count : Int32) : Slice(UInt32)
+        out = Slice(UInt32).new(count)
+        src = blob.to_slice
+        i = 0
+        while i < count
+          out.to_unsafe[i] = IO::ByteFormat::LittleEndian.decode(UInt32, src[i * 4, 4])
+          i += 1
+        end
+        out
+      end
+
       STAGE1 = load_u16(STAGE1_BLOB, STAGE1_LEN)
-      STAGE2 = load_u16(STAGE2_BLOB, N_BLOCKS * BLOCK_SIZE)
+      STAGE2 = load_u32(STAGE2_BLOB, N_BLOCKS * BLOCK_SIZE)
       BREAK_TABLE = BREAK_BLOB.to_slice
     end
     CR

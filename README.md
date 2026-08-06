@@ -1,13 +1,16 @@
 # uw-cr
 
-Unicode text measurement for Crystal: display width, grapheme-cluster segmentation, and column-budget truncation. Built for terminals and TUIs where you need to know how many columns a string occupies.
+Unicode text measurement and segmentation for Crystal: display width, grapheme clusters, word and line boundaries, column-budget truncation, and word wrapping. Built for terminals and TUIs where you need to know how many columns a string occupies and where it is allowed to break.
 
-Targets [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/) and validates grapheme breaking against the official `GraphemeBreakTest.txt`.
+Targets [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/) and validates grapheme, word, and line breaking against the official `GraphemeBreakTest.txt`, `WordBreakTest.txt`, and `LineBreakTest.txt`.
 
 ## Features
 
 - **Display width** for single code points, first clusters, and whole strings.
 - **Grapheme segmentation** implementing [UAX #29](https://www.unicode.org/reports/tr29/), including Indic conjuncts (GB9c), emoji ZWJ sequences (GB11), and regional-indicator pairs (GB12/13).
+- **Word segmentation** implementing [UAX #29](https://www.unicode.org/reports/tr29/) word boundaries, including numeric and letter-internal punctuation.
+- **Line breaking** implementing [UAX #14](https://www.unicode.org/reports/tr14/), distinguishing mandatory breaks from opportunities.
+- **Word wrapping** to a column budget, with optional hard-breaking of overlong words.
 - **Truncation** to a column budget that never splits a wide cluster across the boundary.
 - **Cluster iterators** over `Slice(UInt32)` and UTF-8 `Bytes`, resettable for reuse.
 - **Unicode and Legacy width modes**, plus terminal Mode 2027 negotiation.
@@ -66,7 +69,7 @@ UW.width("\u00E9x")  # => {1, 2}  (width 1, two bytes consumed)
 `grapheme_next` returns just the span of the next cluster, useful for stepping through text.
 
 ```cr
-UW.grapheme_next("e\u0301x")  # => 2  (base + combining mark)
+UW.grapheme_next("e\u0301x")  # => 3  (base + combining mark, counted in bytes)
 ```
 
 ### Truncation
@@ -92,6 +95,85 @@ end
 ```
 
 `SpanKind` distinguishes `Graphemic`, `Control`, `CR`, `LF`, `CRLF`, and `Tab` spans, so callers can handle line breaks and tabs however they need.
+
+### Word segmentation
+
+`words` splits text at UAX #29 word boundaries, yielding a `WordSpan` (`width`, `size`) per segment. Separators are returned as their own spans, so the sizes always tile the input.
+
+```cr
+UW.words("Hi there!").each do |w|
+  puts w.size
+end
+# 2  1  5  1
+
+widths = [] of Int32
+UW.words("\u65E5\u672C ab").each { |w| widths << w.width }
+widths  # => [2, 2, 1, 2]
+```
+
+`word_next` returns the span of the first word, which is useful for stepping a cursor.
+
+```cr
+UW.word_next("can't stop")  # => 5  (the apostrophe stays inside the word)
+UW.word_next("3.14 pie")    # => 4  (the decimal point does not split the number)
+```
+
+### Line breaking
+
+`line_breaks` yields a `BreakSpan` (`width`, `size`, `mandatory`) for each segment ending at a break opportunity. Trailing spaces stay with the segment they follow, matching UAX #14.
+
+```cr
+off = 0
+UW.line_breaks("ab cd").each do |b|
+  puts "ab cd".byte_slice(off, b.size)
+  off += b.size
+end
+# "ab "
+# "cd"
+```
+
+`mandatory` marks a hard break: a line feed, carriage return, next line, or the end of text.
+
+```cr
+flags = [] of Bool
+UW.line_breaks("a\nb").each { |b| flags << b.mandatory }
+flags  # => [true, true]
+```
+
+`line_break_next` returns the offset of the first opportunity.
+
+```cr
+UW.line_break_next("ab cd")  # => 3
+```
+
+### Wrapping
+
+`wrap` fits text to a column budget, yielding a `Line` (`offset`, `size`, `width`, `mandatory`). Lines are cut at UAX #14 opportunities, trailing whitespace is trimmed, and the reported `width` excludes it.
+
+```cr
+text = "The quick brown fox jumps over the lazy dog"
+UW.wrap(text, 12).each do |line|
+  puts text.byte_slice(line.offset, line.size)
+end
+# The quick
+# brown fox
+# jumps over
+# the lazy dog
+```
+
+A word wider than the whole budget is hard-broken at cluster boundaries so it can never overflow.
+
+```cr
+UW.wrap("supercalifragilistic ok", 8)
+# "supercal"  "ifragili"  "stic ok"
+```
+
+`WrapOpts` controls that behaviour, along with trimming and the underlying width mode. A budget of `0` or less disables width wrapping while still honouring hard breaks.
+
+```cr
+opts = UW::WrapOpts.new.with_break_overlong(false).with_trim(false)
+UW.wrap(text, 12, opts: opts)
+```
 
 A single iterator can be reused across buffers with `reset`, avoiding reallocation in hot loops:
 

@@ -13,7 +13,7 @@ module UW
       @cl        = Cluster.new(@opts.cap, @opts.mode)
       @have_seed = false
       @seed_cp   = 0_u32
-      @seed_p    = 0_u16
+      @seed_p    = 0_u32
     end
 
     def reset(cps : Slice(UInt32), opts : WidthOpts = @opts) : Nil
@@ -28,7 +28,7 @@ module UW
       @cl.reset
       @have_seed = false
       @seed_cp   = 0_u32
-      @seed_p    = 0_u16
+      @seed_p    = 0_u32
     end
 
     def next? : Span?
@@ -81,7 +81,7 @@ module UW
       @cl        = Cluster.new(@opts.cap, @opts.mode)
       @have_seed = false
       @seed_cp   = 0_u32
-      @seed_p    = 0_u16
+      @seed_p    = 0_u32
       @seed_len  = 0
     end
 
@@ -97,8 +97,12 @@ module UW
       @cl.reset
       @have_seed = false
       @seed_cp   = 0_u32
-      @seed_p    = 0_u16
+      @seed_p    = 0_u32
       @seed_len  = 0
+    end
+
+    def reset(s : String, policy : Utf8Policy = @policy, opts : WidthOpts = @opts) : Nil
+      reset(s.to_slice, policy, opts)
     end
 
     def next? : Span?

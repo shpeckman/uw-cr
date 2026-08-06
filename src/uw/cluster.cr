@@ -47,7 +47,7 @@ module UW
       push(cp, UW::Props.props(cp))
     end
 
-    def push(cp : UInt32, p : UInt16) : Nil
+    def push(cp : UInt32, p : UInt32) : Nil
       if !@started
         @first_cp = cp
       end
