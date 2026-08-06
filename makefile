@@ -1,5 +1,5 @@
 # makefile
-EXAMPLES := $(wildcard examples/*.cr)
+	EXAMPLES := $(wildcard examples/*.cr)
 
 $(EXAMPLES):
 	@echo "==> $@"
@@ -24,5 +24,5 @@ spec:
 
 bench:
 	crystal run --release --no-debug bench/bench.cr
-
+	
 examples: $(EXAMPLES)
