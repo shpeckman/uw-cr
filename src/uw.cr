@@ -11,6 +11,9 @@ require "./uw/word"
 require "./uw/sentence"
 require "./uw/linebreak"
 require "./uw/wrap"
+require "./uw/cells"
+require "./uw/tabs"
+require "./uw/ansi"
 
 module UW
   {% unless @type.has_constant?("CLUSTER_WIDTH_CAP") %}
