@@ -7,8 +7,6 @@ require "./uw/state"
 require "./uw/cluster"
 require "./uw/utf8"
 require "./uw/iter"
-require "./uw/word"
-require "./uw/sentence"
 require "./uw/linebreak"
 require "./uw/wrap"
 require "./uw/cells"
@@ -32,58 +30,6 @@ module UW
 
   def self.unicode_version : String
     UNICODE_VERSION
-  end
-
-  def self.words(cps : Slice(UInt32), opts : WidthOpts = WidthOpts.unicode) : Utf32Words
-    Utf32Words.new(cps, opts)
-  end
-
-  def self.words(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : Utf8Words
-    Utf8Words.new(s, policy, opts)
-  end
-
-  def self.words(s : String, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : Utf8Words
-    Utf8Words.new(s.to_slice, policy, opts)
-  end
-
-  def self.word_next(cps : Slice(UInt32)) : Int32
-    sp = Utf32Words.new(cps).next?
-    sp ? sp.size : 0
-  end
-
-  def self.word_next(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace) : Int32
-    sp = Utf8Words.new(s, policy).next?
-    sp ? sp.size : 0
-  end
-
-  def self.word_next(s : String, policy : Utf8Policy = Utf8Policy::Replace) : Int32
-    word_next(s.to_slice, policy)
-  end
-
-  def self.sentences(cps : Slice(UInt32), opts : WidthOpts = WidthOpts.unicode) : Utf32Sentences
-    Utf32Sentences.new(cps, opts)
-  end
-
-  def self.sentences(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : Utf8Sentences
-    Utf8Sentences.new(s, policy, opts)
-  end
-
-  def self.sentences(s : String, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : Utf8Sentences
-    Utf8Sentences.new(s.to_slice, policy, opts)
-  end
-
-  def self.sentence_next(cps : Slice(UInt32)) : Int32
-    sp = Utf32Sentences.new(cps).next?
-    sp ? sp.size : 0
-  end
-
-  def self.sentence_next(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace) : Int32
-    sp = Utf8Sentences.new(s, policy).next?
-    sp ? sp.size : 0
-  end
-
-  def self.sentence_next(s : String, policy : Utf8Policy = Utf8Policy::Replace) : Int32
-    sentence_next(s.to_slice, policy)
   end
 
   def self.line_breaks(cps : Slice(UInt32), opts : WidthOpts = WidthOpts.unicode) : Utf32LineBreaks

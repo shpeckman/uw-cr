@@ -20,14 +20,6 @@ module SpecHelper
     break_cases("GraphemeBreakTest.txt")
   end
 
-  def self.word_cases : Array(GraphemeCase)
-    break_cases("WordBreakTest.txt")
-  end
-
-  def self.sentence_cases : Array(GraphemeCase)
-    break_cases("SentenceBreakTest.txt")
-  end
-
   def self.line_cases : Array(GraphemeCase)
     break_cases("LineBreakTest.txt")
   end
