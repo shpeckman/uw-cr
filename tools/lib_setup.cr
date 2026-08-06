@@ -7,7 +7,6 @@ require "bit_array"
 module LibSetup
   UCD_VERSION = "17.0.0"
   BASE_URL    = "https://www.unicode.org/Public/#{UCD_VERSION}/ucd"
-  CACHE_DIR   = "#{__DIR__}/ucd"
   OUT_DIR     = "#{__DIR__}/../src/uw"
   SPEC_DIR    = "#{__DIR__}/../spec/data"
 
@@ -74,23 +73,22 @@ module LibSetup
 
   DOTTED_CIRCLE = 0x25CC
 
-  def self.fetch(refresh : Bool)
-    FileUtils.mkdir_p(CACHE_DIR)
+  def self.fetch : Hash(String, String)
+    sources = {} of String => String
     SOURCES.each do |local, remote|
-      path = "#{CACHE_DIR}/#{local}"
-      next if File.exists?(path) && !refresh
       url = "#{BASE_URL}/#{remote}"
       STDERR.puts "fetching #{url}"
       body = HTTP::Client.get(url) do |resp|
         raise "GET #{url} -> #{resp.status_code}" unless resp.success?
         resp.body_io.gets_to_end
       end
-      File.write(path, body)
+      sources[local] = body
     end
+    sources
   end
 
-  def self.each_range(local : String, &)
-    File.each_line("#{CACHE_DIR}/#{local}") do |raw|
+  def self.each_range(text : String, &)
+    text.each_line do |raw|
       line = raw
       if h = line.index('#')
         line = line[0...h]
@@ -110,7 +108,7 @@ module LibSetup
     end
   end
 
-  def self.build_props : Array(UInt32)
+  def self.build_props(src : Hash(String, String)) : Array(UInt32)
     gc      = Array(String?).new(MAX, nil)
     gbp     = Array(String?).new(MAX, nil)
     wbp     = Array(String?).new(MAX, nil)
@@ -122,7 +120,7 @@ module LibSetup
     extpict = BitArray.new(MAX)
 
     pending : {Int32, String}? = nil
-    File.each_line("#{CACHE_DIR}/UnicodeData.txt") do |raw|
+    src["UnicodeData.txt"].each_line do |raw|
       f    = raw.chomp.split(';')
       cp   = f[0].to_i(16)
       name = f[1]
@@ -139,46 +137,46 @@ module LibSetup
       gc[cp] = cat if cp < MAX
     end
 
-    each_range("EastAsianWidth.txt") do |lo, hi, cols|
+    each_range(src["EastAsianWidth.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| eaw[cp] = v }
     end
 
-    each_range("GraphemeBreakProperty.txt") do |lo, hi, cols|
+    each_range(src["GraphemeBreakProperty.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| gbp[cp] = v }
     end
 
-    each_range("WordBreakProperty.txt") do |lo, hi, cols|
+    each_range(src["WordBreakProperty.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| wbp[cp] = v }
     end
 
-    each_range("SentenceBreakProperty.txt") do |lo, hi, cols|
+    each_range(src["SentenceBreakProperty.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| sbp[cp] = v }
     end
 
-    each_range("DerivedLineBreak.txt") do |lo, hi, cols|
+    each_range(src["DerivedLineBreak.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| lbp[cp] = v }
     end
 
-    each_range("emoji-data.txt") do |lo, hi, cols|
+    each_range(src["emoji-data.txt"]) do |lo, hi, cols|
       case cols[1]
       when "Emoji_Presentation"    then (lo..hi).each { |cp| epres[cp] = true }
       when "Extended_Pictographic" then (lo..hi).each { |cp| extpict[cp] = true }
       end
     end
 
-    each_range("DerivedCoreProperties.txt") do |lo, hi, cols|
+    each_range(src["DerivedCoreProperties.txt"]) do |lo, hi, cols|
       next unless cols[1] == "InCB"
       v = cols[2]
       (lo..hi).each { |cp| incb[cp] = v }
     end
 
     lb_alias = {} of String => String
-    File.each_line("#{CACHE_DIR}/PropertyValueAliases.txt") do |raw|
+    src["PropertyValueAliases.txt"].each_line do |raw|
       line = raw
       if h = line.index('#')
         line = line[0...h]
@@ -196,7 +194,7 @@ module LibSetup
     end
 
     lb_default = Array(String).new(MAX, "XX")
-    File.each_line("#{CACHE_DIR}/DerivedLineBreak.txt") do |raw|
+    src["DerivedLineBreak.txt"].each_line do |raw|
       line = raw.strip
       next unless line.starts_with?("# @missing:")
       body = line[11..].strip
@@ -370,25 +368,24 @@ module LibSetup
 
   def self.clean
     STDERR.puts "cleaning generated artifacts"
-    FileUtils.rm_rf(CACHE_DIR)
     Dir.glob("#{OUT_DIR}/*.bin").each { |f| File.delete(f) }
+    tables = "#{OUT_DIR}/tables.cr"
+    File.delete(tables) if File.exists?(tables)
     if Dir.exists?(SPEC_DIR)
       Dir.glob("#{SPEC_DIR}/*").each { |f| File.delete(f) if File.file?(f) }
     end
   end
 
-  def self.fetch_tests(refresh : Bool)
+  def self.fetch_tests
     FileUtils.mkdir_p(SPEC_DIR)
     TEST_FILES.each do |name|
-      path = "#{SPEC_DIR}/#{name}"
-      next if File.exists?(path) && !refresh
       url = "#{TEST_BASE_URL}/#{name}"
       STDERR.puts "fetching #{url}"
       body = HTTP::Client.get(url) do |resp|
         raise "GET #{url} -> #{resp.status_code}" unless resp.success?
         resp.body_io.gets_to_end
       end
-      File.write(path, body)
+      File.write("#{SPEC_DIR}/#{name}", body)
     end
   end
 
@@ -399,12 +396,12 @@ module LibSetup
       return
     end
 
-    refresh = ARGV.includes?("--refresh")
-    clean if refresh
-    fetch(refresh)
+    clean
+
+    src = fetch
 
     STDERR.puts "building packed properties for #{MAX} code points"
-    props = build_props
+    props = build_props(src)
 
     stage1, stage2 = build_trie(props)
     STDERR.puts "stage1: #{stage1.size} entries, stage2: #{stage2.size // BLOCK_SIZE} blocks"
@@ -466,7 +463,7 @@ module LibSetup
 
     STDERR.puts "wrote #{OUT_DIR}/stage1.bin, #{OUT_DIR}/stage2.bin, #{OUT_DIR}/break.bin, #{OUT_DIR}/tables.cr"
 
-    fetch_tests(refresh)
+    fetch_tests
 
     STDERR.puts "setup complete"
   end
