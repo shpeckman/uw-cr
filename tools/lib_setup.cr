@@ -3,18 +3,12 @@
 require "http/client"
 require "file_utils"
 require "bit_array"
+require "colorize"
 
 module LibSetup
   UCD_VERSION = "17.0.0"
   BASE_URL    = "https://www.unicode.org/Public/#{UCD_VERSION}/ucd"
   OUT_DIR     = "#{__DIR__}/../src/uw"
-  SPEC_DIR    = "#{__DIR__}/../spec/data"
-
-  TEST_BASE_URL = "#{BASE_URL}/auxiliary"
-  TEST_FILES    = {
-    "GraphemeBreakTest.txt",
-    "LineBreakTest.txt",
-  }
 
   MAX        = 0x110000
   BLOCK_SIZE =      256
@@ -57,7 +51,6 @@ module LibSetup
     sources = {} of String => String
     SOURCES.each do |local, remote|
       url = "#{BASE_URL}/#{remote}"
-      STDERR.puts "fetching #{url}"
       body = HTTP::Client.get(url) do |resp|
         raise "GET #{url} -> #{resp.status_code}" unless resp.success?
         resp.body_io.gets_to_end
@@ -330,103 +323,114 @@ module LibSetup
   end
 
   def self.clean
-    STDERR.puts "cleaning generated artifacts"
     Dir.glob("#{OUT_DIR}/*.bin").each { |f| File.delete(f) }
     tables = "#{OUT_DIR}/tables.cr"
     File.delete(tables) if File.exists?(tables)
-    if Dir.exists?(SPEC_DIR)
-      Dir.glob("#{SPEC_DIR}/*").each { |f| File.delete(f) if File.file?(f) }
-    end
   end
 
-  def self.fetch_tests
-    FileUtils.mkdir_p(SPEC_DIR)
-    TEST_FILES.each do |name|
-      url = "#{TEST_BASE_URL}/#{name}"
-      STDERR.puts "fetching #{url}"
-      body = HTTP::Client.get(url) do |resp|
-        raise "GET #{url} -> #{resp.status_code}" unless resp.success?
-        resp.body_io.gets_to_end
-      end
-      File.write("#{SPEC_DIR}/#{name}", body)
+  def self.phase(label : String, & : -> T) : T forall T
+    STDOUT.print("#{label.ljust(10)} - ")
+    STDOUT.flush
+    begin
+      result = yield
+      STDOUT.puts("OK".colorize.green)
+      result
+    rescue ex
+      STDOUT.puts("NOK".colorize.red)
+      raise ex
     end
   end
 
   def self.run
     if ARGV.includes?("--clean-only")
-      clean
-      STDERR.puts "clean complete"
+      phase("Cleanup") { clean }
       return
     end
 
-    clean
+    phase("Cleanup") { clean }
+    src = phase("Fetching") { fetch }
 
-    src = fetch
+    stage1 = uninitialized Array(UInt16)
+    stage2 = uninitialized Array(UInt32)
+    props  = uninitialized Array(UInt32)
+    brk    = uninitialized Array(UInt8)
 
-    STDERR.puts "building packed properties for #{MAX} code points"
-    props = build_props(src)
+    phase("Generating") do
+      props          = build_props(src)
+      stage1, stage2 = build_trie(props)
+      brk            = build_break_table
 
-    stage1, stage2 = build_trie(props)
-    STDERR.puts "stage1: #{stage1.size} entries, stage2: #{stage2.size // BLOCK_SIZE} blocks"
+      FileUtils.mkdir_p(OUT_DIR)
+      write_u16("#{OUT_DIR}/stage1.bin", stage1)
+      write_u32("#{OUT_DIR}/stage2.bin", stage2)
+      File.write("#{OUT_DIR}/break.bin", Bytes.new(brk.size) { |i| brk[i] })
 
-    brk_table = build_break_table
+      tables_src = <<-CR
+      # src/uw/tables.cr
 
-    FileUtils.mkdir_p(OUT_DIR)
-    write_u16("#{OUT_DIR}/stage1.bin", stage1)
-    write_u32("#{OUT_DIR}/stage2.bin", stage2)
-    File.write("#{OUT_DIR}/break.bin", Bytes.new(brk_table.size) { |i| brk_table[i] })
+      module UW
+        UNICODE_VERSION = #{UCD_VERSION.inspect}
 
-    tables_src = <<-CR
-    # src/uw/tables.cr
+        BLOCK_BITS = 8
+        BLOCK_SIZE = #{BLOCK_SIZE}
+        STAGE1_LEN = #{stage1.size}
+        N_BLOCKS   = #{stage2.size // BLOCK_SIZE}
+        GCB_CLASSES = #{GCB_N}
+        LB_CLASSES = #{LB_N}
 
-    module UW
-      UNICODE_VERSION = #{UCD_VERSION.inspect}
+        private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}
+        private STAGE2_BLOB = {{ read_file("\#{__DIR__}/stage2.bin") }}
+        private BREAK_BLOB  = {{ read_file("\#{__DIR__}/break.bin") }}
 
-      BLOCK_BITS = 8
-      BLOCK_SIZE = #{BLOCK_SIZE}
-      STAGE1_LEN = #{stage1.size}
-      N_BLOCKS   = #{stage2.size // BLOCK_SIZE}
-      GCB_CLASSES = #{GCB_N}
-      LB_CLASSES = #{LB_N}
-
-      private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}
-      private STAGE2_BLOB = {{ read_file("\#{__DIR__}/stage2.bin") }}
-      private BREAK_BLOB  = {{ read_file("\#{__DIR__}/break.bin") }}
-
-      private def self.load_u16(blob : String, count : Int32) : Slice(UInt16)
-        out = Slice(UInt16).new(count)
-        src = blob.to_slice
-        i = 0
-        while i < count
-          out.to_unsafe[i] = IO::ByteFormat::LittleEndian.decode(UInt16, src[i * 2, 2])
-          i += 1
+        private def self.load_u16(blob : String, count : Int32) : Slice(UInt16)
+          out = Slice(UInt16).new(count)
+          src = blob.to_slice
+          i = 0
+          while i < count
+            out.to_unsafe[i] = IO::ByteFormat::LittleEndian.decode(UInt16, src[i * 2, 2])
+            i += 1
+          end
+          out
         end
-        out
-      end
 
-      private def self.load_u32(blob : String, count : Int32) : Slice(UInt32)
-        out = Slice(UInt32).new(count)
-        src = blob.to_slice
-        i = 0
-        while i < count
-          out.to_unsafe[i] = IO::ByteFormat::LittleEndian.decode(UInt32, src[i * 4, 4])
-          i += 1
+        private def self.load_u32(blob : String, count : Int32) : Slice(UInt32)
+          out = Slice(UInt32).new(count)
+          src = blob.to_slice
+          i = 0
+          while i < count
+            out.to_unsafe[i] = IO::ByteFormat::LittleEndian.decode(UInt32, src[i * 4, 4])
+            i += 1
+          end
+          out
         end
-        out
-      end
 
-      STAGE1 = load_u16(STAGE1_BLOB, STAGE1_LEN)
-      STAGE2 = load_u32(STAGE2_BLOB, N_BLOCKS * BLOCK_SIZE)
-      BREAK_TABLE = BREAK_BLOB.to_slice
+        STAGE1 = load_u16(STAGE1_BLOB, STAGE1_LEN)
+        STAGE2 = load_u32(STAGE2_BLOB, N_BLOCKS * BLOCK_SIZE)
+        BREAK_TABLE = BREAK_BLOB.to_slice
+      end
+      CR
+      File.write("#{OUT_DIR}/tables.cr", tables_src + "\n")
     end
-    CR
-    File.write("#{OUT_DIR}/tables.cr", tables_src + "\n")
 
-    STDERR.puts "wrote #{OUT_DIR}/stage1.bin, #{OUT_DIR}/stage2.bin, #{OUT_DIR}/break.bin, #{OUT_DIR}/tables.cr"
+    print_summary(src, stage1, stage2, brk)
+  end
 
-    fetch_tests
+  def self.print_summary(src : Hash(String, String), stage1 : Array(UInt16), stage2 : Array(UInt32), brk : Array(UInt8))
+    stage1_bytes = stage1.size * 2
+    stage2_bytes = stage2.size * 4
+    break_bytes  = brk.size
+    total_bytes  = stage1_bytes + stage2_bytes + break_bytes
 
-    STDERR.puts "setup complete"
+    puts
+    puts "Summary:"
+    puts "  unicode      #{UCD_VERSION}"
+    puts "  sources      #{src.size} files"
+    puts "  code points  #{MAX}"
+    puts "  stage1       #{stage1.size} entries (#{stage1_bytes} bytes)"
+    puts "  stage2       #{stage2.size // BLOCK_SIZE} blocks (#{stage2_bytes} bytes)"
+    puts "  break table  #{GCB_N}x#{GCB_N} (#{break_bytes} bytes)"
+    puts "  tables       #{total_bytes} bytes total"
+    puts "  output       #{File.expand_path(OUT_DIR)}"
   end
 end
 

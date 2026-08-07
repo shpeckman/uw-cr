@@ -1,10 +1,12 @@
 # spec/spec_helper.cr
 
 require "spec"
+require "http/client"
+require "file_utils"
 require "../src/uw-cr"
 
 module SpecHelper
-  DATA_DIR = "#{__DIR__}/data"
+  TEST_BASE_URL = "https://www.unicode.org/Public/#{UW.unicode_version}/ucd/auxiliary"
 
   record GraphemeCase,
     line    : Int32,
@@ -24,8 +26,28 @@ module SpecHelper
     break_cases("LineBreakTest.txt")
   end
 
+  def self.cache_dir : String
+    base = ENV["XDG_CACHE_HOME"]?
+    base = "#{Path.home}/.cache" if base.nil? || base.empty?
+    "#{base}/uw-cr/#{UW.unicode_version}"
+  end
+
+  def self.ensure_file(name : String) : String
+    path = "#{cache_dir}/#{name}"
+    return path if File.exists?(path)
+
+    url  = "#{TEST_BASE_URL}/#{name}"
+    body = HTTP::Client.get(url) do |resp|
+      raise "GET #{url} -> #{resp.status_code}" unless resp.success?
+      resp.body_io.gets_to_end
+    end
+    FileUtils.mkdir_p(cache_dir)
+    File.write(path, body)
+    path
+  end
+
   def self.break_cases(file : String) : Array(GraphemeCase)
-    path  = "#{DATA_DIR}/#{file}"
+    path  = ensure_file(file)
     cases = [] of GraphemeCase
     File.read_lines(path).each_with_index do |raw, idx|
       body = raw
