@@ -174,7 +174,7 @@ module UW
     total
   end
 
-  def self.swidth(s : Bytes, upolicy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip, opts : WidthOpts = WidthOpts.unicode) : Int32
+  def self.swidth(s : Bytes, policy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip, opts : WidthOpts = WidthOpts.unicode) : Int32
     st           = State.new
     cl           = Cluster.new(opts.cap, opts.mode, opts.ambiguous_wide)
     total        = 0
@@ -185,7 +185,7 @@ module UW
     i = 0
     while i < n
       cp, len, bad = utf8_decode(ptr + i, n - i)
-      break if bad && upolicy.strict?
+      break if bad && policy.strict?
       p = Props.props(cp)
       if st.grapheme_break(cp, p) && have_cluster
         w = cl.display_width
@@ -211,8 +211,8 @@ module UW
     total
   end
 
-  def self.swidth(s : String, upolicy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip, opts : WidthOpts = WidthOpts.unicode) : Int32
-    swidth(s.to_slice, upolicy, ctrl, opts)
+  def self.swidth(s : String, policy : Utf8Policy = Utf8Policy::Replace, ctrl : CtrlPolicy = CtrlPolicy::Skip, opts : WidthOpts = WidthOpts.unicode) : Int32
+    swidth(s.to_slice, policy, ctrl, opts)
   end
 
   def self.truncate(cps : Slice(UInt32), max_cols : Int32, opts : WidthOpts = WidthOpts.unicode) : {Int32, Int32}
@@ -254,7 +254,7 @@ module UW
     {total, n}
   end
 
-  def self.truncate(s : Bytes, max_cols : Int32, upolicy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : {Int32, Int32}
+  def self.truncate(s : Bytes, max_cols : Int32, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : {Int32, Int32}
     return {0, 0} if max_cols <= 0
     st  = State.new
     cl  = Cluster.new(opts.cap, opts.mode, opts.ambiguous_wide)
@@ -267,7 +267,7 @@ module UW
     i             = 0
     while i < n
       cp, len, bad = utf8_decode(ptr + i, n - i)
-      break if bad && upolicy.strict?
+      break if bad && policy.strict?
       p = Props.props(cp)
       if st.grapheme_break(cp, p) && have_cluster
         w  = cl.display_width
@@ -294,7 +294,7 @@ module UW
     {total, n}
   end
 
-  def self.truncate(s : String, max_cols : Int32, upolicy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : {Int32, Int32}
-    truncate(s.to_slice, max_cols, upolicy, opts)
+  def self.truncate(s : String, max_cols : Int32, policy : Utf8Policy = Utf8Policy::Replace, opts : WidthOpts = WidthOpts.unicode) : {Int32, Int32}
+    truncate(s.to_slice, max_cols, policy, opts)
   end
 end

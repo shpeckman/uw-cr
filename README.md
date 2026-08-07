@@ -1,10 +1,8 @@
 # uw-cr
 
-Unicode text measurement and segmentation for Crystal (UCD 17.0.0): display width, grapheme clusters (UAX #29), line breaks (UAX #14).  
-Backed by a two-stage property trie generated from the UCD.  
+Unicode text measurement and segmentation for Crystal (UCD 17.0.0): display width, grapheme clusters (UAX #29), line breaks (UAX #14), and column mapping for terminals.
 
-Works on `String`, `Bytes` (UTF-8), and `Slice(UInt32)` (UTF-32).  
-No hot-path allocation.  
+Backed by a two-stage property trie generated from the UCD. Works on `String`, `Bytes` (UTF-8), and `Slice(UInt32)` (UTF-32). No hot-path allocation.
 
 ## Install
 
@@ -22,219 +20,240 @@ make bench   # run benchmarking
 
 `make spec` caches the test files under `$XDG_CACHE_HOME/uw-cr/<version>` (falling back to `~/.cache`).
 
-## Quick start
+## Overview
 
-```crystal
-require "uw-cr"
+This library answers measurement questions about Unicode text the way a terminal sees it: in display columns and grapheme clusters, not code points. Reach for it when you need to
 
-UW.swidth("日本語 café 👨‍👩‍👧")   # => 14
-UW.width_cp(0x4E00)                # => 2
+- measure how many columns a string occupies (`swidth`),
+- fit text into a fixed width without splitting a glyph (`truncate`, `slice_cols`),
+- slice a horizontally-scrolled line to a viewport (`slice_cols`),
+- place a cursor by column or map a click back to a byte offset (`offset_to_col`, `col_to_offset`),
+- walk grapheme clusters or find wrap points (`clusters`, `line_breaks`).
 
-UW.clusters("a̐é👨‍👩‍👧").each do |span|
-  span.width   # display columns
-  span.size    # code units consumed (bytes for UTF-8)
-  span.kind    # SpanKind::Graphemic, Control, CR, LF, CRLF, Tab
-end
+Everything below is organized by the task you're trying to do. The [API summary](#api-summary) at the end is the flat reference.
 
-UW.line_breaks("well-known café").each do |brk|
-  brk.width      # columns in this segment
-  brk.size       # code units
-  brk.mandatory  # true at a hard break or end of text
-end
-```
+## Conventions
+
+**Widths.** `0` for combining marks and zero-width formatting, `1` narrow, `2` wide (CJK, emoji presentation), `-1` control. Per-string totals (`swidth`) never return `-1` under the default control policy — controls are skipped.
+
+**Sizes are code units.** Every `size` / offset / consumed count is in the units of the buffer you passed: **bytes** for `String` and `Bytes`, **`UInt32` elements** for `Slice(UInt32)`. A `slice_cols` result on a `String` is a byte range; pass it straight to `String#byte_slice`.
+
+**Columns are absolute and half-open.** Wherever a function takes a column range it means `[start_col, end_col)` as absolute columns from the start of the string — not a start plus a width. To slice a width-`w` window starting at scroll offset `x`, pass `start_col: x, end_col: x + w`.
+
+**Encoding policy.** UTF-8 paths take a `Utf8Policy`: `Replace` (default) treats each bad byte as U+FFFD and advances one byte; `Strict` stops at the first invalid byte. On `String`/`Bytes` overloads it is the parameter named `policy`, passed positionally right after the buffer.
 
 ## Measuring width
 
-`swidth` totals a string.  
-`width_cp` measures one scalar.  
-`width` measures the first grapheme cluster and reports the code units it spanned.  
+`swidth` totals a string; `width` measures just the first cluster and tells you how far it reached.
 
 ```crystal
 UW.swidth("hello")                 # => 5
+UW.swidth("\u65E5\u672C\u8A9E")    # => 6   three wide CJK
 UW.swidth("\u2764\uFE0F")          # => 2   heart + VS16 → emoji presentation
 UW.width_cp('A'.ord.to_u32)        # => 1
 UW.width_cp(0x1B_u32)              # => -1  control
-w, consumed = UW.width("éx")       # => {1, 2}
+
+w, consumed = UW.width("\u00E9x")  # => {1, 2}   first cluster is é, 2 bytes
 ```
 
-Widths follow the terminal convention: `0` for combining marks and zero-width formatting, `1` narrow, `2` wide (CJK, emoji presentation), `-1` control.  
+Edge cases: `swidth("")` is `0`. `width("")` is `{0, 0}`. `width_cp` above the assigned range (`>= 0x110000`) is `0`. On the `Bytes`/`String` path under `Strict`, `width` stops at the first bad byte and reports the bytes consumed up to it.
 
-`width_cp` has three forms: the bare scalar above, a mode override (`width_cp(cp, UW::WidthMode::Legacy)`), and an options form (`width_cp(cp, opts)`) — the last is the only one that honours `ambiguous_wide`.  
+### Controls in a total
+
+`CtrlPolicy` decides what `swidth` does when it meets a control: `Skip` (default) omits it and keeps summing; `Fail` collapses the whole total to `-1`. On the UTF-32 path `ctrl` is the first positional argument; on `String`/`Bytes` it comes after `policy`, so pass it by name.
 
 ```crystal
-UW.width_cp(0x00A7_u32)                                              # => 1
-UW.width_cp(0x00A7_u32, UW::WidthOpts.unicode.with_ambiguous_wide(true)) # => 2
+UW.swidth(cps, UW::CtrlPolicy::Fail)          # UTF-32: positional
+UW.swidth("a\eb", ctrl: UW::CtrlPolicy::Fail) # => -1
+UW.swidth("a\eb")                             # => 2   ESC skipped
 ```
 
-### Control handling
+### The cluster width cap
 
-`CtrlPolicy` decides what `swidth` does with a control character: `Skip` (default) omits it, `Fail` collapses the total to `-1`.  
-On the UTF-32 path it is the first positional argument; on `String` / `Bytes` it follows `Utf8Policy`, so pass it by name.  
-
-```crystal
-UW.swidth(cps, UW::CtrlPolicy::Fail)         # UTF-32: positional
-UW.swidth(str, ctrl: UW::CtrlPolicy::Fail)   # String/Bytes: named
-```
-
-### Cluster width cap
-
-A cluster is capped at `CLUSTER_WIDTH_CAP` (2) columns, matching how terminals render an unbounded ZWJ sequence as one double-wide cell.  
-A cap of `0` disables it and sums the true per-codepoint width.  
+An unbounded ZWJ sequence renders as one double-wide cell in a terminal, so a cluster's width is capped at `CLUSTER_WIDTH_CAP` (2). A cap of `0` disables the ceiling and sums the true per-codepoint width.
 
 ```crystal
 family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}"
-UW.swidth(family)                                           # => 2   capped
-UW.swidth(family, opts: UW::WidthOpts.unicode.with_cap(0))  # => 8   uncapped
+UW.swidth(family)                                          # => 2   capped
+UW.swidth(family, opts: UW::WidthOpts.unicode.with_cap(0)) # => 8   uncapped
 ```
 
-## Width modes and mode 2027
+## Fitting text to a width
 
-`WidthOpts` picks a width model.  
-`WidthMode::Unicode` is grapheme-aware: VS16 presentation promotion, ZWJ coalescing.  
-`WidthMode::Legacy` sums code points independently.  
+### Truncate to a budget
+
+`truncate` returns the largest prefix that fits in `max_cols` without splitting a cluster, as `{width_used, cut_offset}`. It never overshoots: a wide cluster that would cross the boundary is left out entirely.
+
+```crystal
+width, offset = UW.truncate("\u65E5\u672C\u8A9E is fun", 6)
+# => {6, 9}   three CJK fill exactly 6 cols, cut at byte 9
+
+UW.truncate("a\u4E00b", 2)   # => {1, 1}   'a' fits, 一 would overflow → stop
+UW.truncate("a\u4E00b", 0)   # => {0, 0}   non-positive budget
+```
+
+`cut_offset` is a byte offset on `String`/`Bytes`, an element index on UTF-32 — slice with it directly.
+
+### Slice a column window (scrolling / clipping)
+
+`slice_cols` is the function you want for rendering one line of a scrollable, clipped region. Given an absolute column range `[start_col, end_col)`, it returns a `ColSlice`:
+
+- `offset` / `size` — the byte (or element) range of the fully-visible clusters inside the window,
+- `start_col` / `end_col` — the resolved bounds (echoed back after clamping),
+- `pad_left` / `pad_right` — spaces to emit where a **wide cluster straddles an edge**. When the window cuts through the middle of a double-width glyph, that glyph is excluded from the byte range and the visible half-column is reported as padding, so your columns still line up.
+
+```crystal
+sl = UW.slice_cols("a\u65E5\u672Cb", 1, 4)   # columns [1, 4)
+# 日 occupies cols 1–2, 本 cols 3–4; window [1,4) shows 日 fully and half of 本
+# sl.offset / sl.size        → bytes of 日
+# sl.pad_left  == 0
+# sl.pad_right == 1          → 本 was bisected; one pad column stands in for it
+```
+
+Edge cases: an empty or inverted range (`end_col <= start_col`) returns a zero-length slice with both pads `0` and the bounds echoed. A range entirely past the end of the string returns a zero-length slice — the loop simply finds no cells in range. A negative `start_col` is clamped to `0`.
+
+#### Worked example: render one scrolled, clipped row
+
+This is the whole point of the function — take a line, a horizontal scroll offset, and a viewport width, and produce exactly the cells to draw, padded to the full width. Note the third argument is `scroll + width`, an **absolute** end column, not the width.
+
+```crystal
+def render_row(io : IO, line : String, scroll : Int32, width : Int32) : Nil
+  sl = UW.slice_cols(line, scroll, scroll + width)
+
+  filled = 0
+  filled += emit_spaces(io, sl.pad_left)
+
+  if sl.size > 0
+    text = line.byte_slice(sl.offset, sl.size)
+    io << text
+    filled += UW.swidth(text)
+  end
+
+  filled += emit_spaces(io, sl.pad_right)
+  emit_spaces(io, width - filled)   # pad short lines out to the full width
+end
+
+def emit_spaces(io : IO, n : Int32) : Int32
+  n.times { io << ' ' } if n > 0
+  n < 0 ? 0 : n
+end
+```
+
+Measure the emitted slice with `swidth` rather than assuming its column span — that keeps the padding correct for wide content, which is the one place a start-plus-width mental model silently breaks.
+
+## Placing a cursor by column
+
+`offset_to_col` and `col_to_offset` convert between byte offsets and display columns; `next_grapheme` / `prev_grapheme` move a byte offset by whole clusters.
+
+```crystal
+s = "a\u4E00b\u4E01c"                # a 一 b 丁 c  →  columns a=0 一=1 b=3 丁=4 c=6
+UW.offset_to_col(s, 4)              # => 3   byte 4 (the 'b') sits at column 3
+UW.col_to_offset(s, 3)             # => 4   column 3 maps back to byte 4
+
+UW.next_grapheme(s, 1)             # => 4   past 一 (3 bytes)
+UW.prev_grapheme(s, 4)             # => 1
+```
+
+Edge cases: `offset_to_col` clamps a non-positive offset to column `0`; an offset past the end returns the string's full width. `col_to_offset` clamps a non-positive column to offset `0`; a column past the end returns the end offset, and a column landing *inside* a wide cluster returns that cluster's start offset (it never points into the middle of a glyph). `next_grapheme` at or past the end returns the end; `prev_grapheme` at or before `0` returns `0`.
+
+Column math honors `WidthOpts`, so legacy mode, a custom cap, and ambiguous promotion all carry through.
+
+## Walking clusters
+
+`clusters` yields a `Span` per grapheme cluster with `width`, `size`, and `kind`.
+
+```crystal
+UW.clusters("a\u0301\u65E5\u{1F468}\u200D\u{1F469}").each do |span|
+  span.width   # display columns
+  span.size    # code units consumed
+  span.kind    # SpanKind
+end
+
+UW.grapheme_next("e\u0301x")   # => 3   size of the first cluster ('e' + U+0301)
+```
+
+`SpanKind` classifies the cluster for a renderer that treats whitespace and controls specially:
+
+- `Graphemic` — ordinary printable cluster.
+- `Tab` — U+0009.
+- `CR` — a lone carriage return; `LF` — a line feed **and** the other vertical whitespace folded to it: U+000B, U+000C, U+0085, U+2028, U+2029; `CRLF` — a CR+LF pair returned as one span.
+- `Control` — any other control character.
+
+Segmentation passes `GraphemeBreakTest.txt` 17.0.0, including Indic conjuncts (GB9c), emoji ZWJ (GB11), and regional-indicator pairing (GB12/13). For the raw one-codepoint-at-a-time decision, drive `UW::State#grapheme_break` yourself.
+
+## Finding wrap points
+
+`line_breaks` yields UAX #14 break opportunities; each `BreakSpan` covers the segment ending at that opportunity.
+
+```crystal
+UW.line_breaks("The quick-brown fox").each do |brk|
+  brk.width      # columns in this segment
+  brk.size       # code units
+  brk.mandatory  # true only at a hard newline or end of text
+end
+
+UW.line_break_next("ab cd")   # => 3   size of the first segment ("ab ")
+```
+
+It reports *where* a line may break — numeric sequences, quotation, Korean jamo, Brahmic viramas are all resolved — and passes `LineBreakTest.txt`. Actually laying out wrapped lines against a width is the caller's job; combine it with `swidth` or `truncate`. `line_breaks("")` yields nothing.
+
+## Width models (legacy vs. mode 2027)
+
+`WidthOpts` selects how clusters are measured. `WidthMode::Unicode` is grapheme-aware: it promotes a narrow emoji base under VS16 and coalesces ZWJ sequences. `WidthMode::Legacy` sums code points independently, matching a terminal that hasn't adopted mode 2027.
 
 ```crystal
 UW.swidth("\u2764\uFE0F", opts: UW::WidthOpts.unicode)  # => 2
 UW.swidth("\u2764\uFE0F", opts: UW::WidthOpts.legacy)   # => 1
 ```
 
-Build variants from a base with the fluent setters; each returns a new `WidthOpts`.  
+Build variants fluently; each setter returns a new value:
 
 ```crystal
 UW::WidthOpts.unicode
-  .with_mode(UW::WidthMode::Legacy)   # switch width model
+  .with_mode(UW::WidthMode::Legacy)
   .with_cap(0)                        # disable the cluster cap
   .with_ambiguous_wide(true)          # promote ambiguous-width chars
 ```
 
-`Config` resolves a `WidthMode` from a terminal's declared mode-2027 state, falling back to legacy when unsupported or reset.  
+### Resolving the model from the terminal
+
+`Config` turns a terminal's declared mode-2027 state into a `WidthMode`, falling back to legacy when unsupported or reset. `opts` takes an optional cap.
 
 ```crystal
 cfg = UW::Config.new(supported: true, state: UW::Mode2027State::Set)
 cfg.width_mode           # => WidthMode::Unicode
 cfg.grapheme_processing? # => true
-UW.swidth(text, opts: cfg.opts)
+UW.swidth(text, opts: cfg.opts)       # default cap
+UW.swidth(text, opts: cfg.opts(4))    # cap at 4
 ```
 
 ### Ambiguous-width characters
 
-East Asian ambiguous characters are narrow by default; `ambiguous_wide` promotes them.  
+East Asian ambiguous characters are narrow by default; `ambiguous_wide` promotes them. It is the one setting `width_cp`'s options form exists to honor.
 
 ```crystal
 wide = UW::WidthOpts.unicode.with_ambiguous_wide(true)
-UW.swidth("§±℃")             # => 3
-UW.swidth("§±℃", opts: wide) # => 6
-UW.width_cp(0x00A7_u32, wide) # => 2   the options form of width_cp
-```
-
-## Grapheme segmentation
-
-`clusters` yields `Span` values with width, size, and kind.  
-`grapheme_next` returns the size of the next cluster.  
-`State` exposes the raw UAX #29 break decision one code point at a time.  
-
-```crystal
-UW.clusters(text).each { |span| ... }
-UW.grapheme_next("e\u0301x")   # => 3   'e' + U+0301
-
-st = UW::State.new
-cps.each { |cp| new_cluster = st.grapheme_break(cp) }
-```
-
-`Span` carries `width`, `size`, and `kind` (a `SpanKind`).  
-`size` and `grapheme_next` count code units: bytes on UTF-8, `UInt32` elements on UTF-32.  
-Segmentation passes `GraphemeBreakTest.txt` 17.0.0, including Indic conjuncts (GB9c), emoji ZWJ (GB11), and regional-indicator pairing (GB12/13).  
-
-## Line breaking
-
-`line_breaks` yields UAX #14 break opportunities.  
-Each `BreakSpan` gives the `width` and `size` of the segment ending there, and whether the break is `mandatory` (a hard newline, or end of text).  
-
-```crystal
-UW.line_breaks("The quick-brown fox").each do |brk|
-  brk.mandatory  # false at soft opportunities, true at newlines / EOT
-end
-
-UW.line_break_next("ab cd")                          # => 3   String
-UW.line_break_next(bytes, UW::Utf8Policy::Strict)    # Bytes
-UW.line_break_next(cps)                              # UTF-32
-```
-
-It resolves the full rule set — numeric sequences, quotation, Korean jamo, Brahmic viramas — and passes `LineBreakTest.txt`.  
-It reports where lines may break; wrapping is the caller's.  
-
-## Column mapping
-
-The `cells` family maps between byte offsets and display columns for cursor positioning and slicing.  
-Each `Cell` carries `offset`, `size`, `width`, `col`, and `kind` (a `SpanKind`).  
-
-```crystal
-UW.cells(text).each do |cell|
-  cell.offset  # byte offset
-  cell.size    # code units
-  cell.col     # starting column
-  cell.width   # display width
-  cell.kind    # SpanKind
-end
-
-UW.offset_to_col(text, offset)
-UW.col_to_offset(text, col)
-UW.next_grapheme(text, offset)
-UW.prev_grapheme(text, offset)
-```
-
-Every function here honours `WidthOpts`, so column math respects legacy mode, a custom cap, and ambiguous promotion — and the `String` / `Bytes` overloads take a `Utf8Policy`.  
-
-```crystal
-wide = UW::WidthOpts.unicode.with_ambiguous_wide(true)
-UW.offset_to_col(text, offset, opts: wide)
-UW.col_to_offset(bytes, col, UW::Utf8Policy::Strict, wide)
-```
-
-`slice_cols` returns a `ColSlice` for a half-open column span.  
-Alongside the byte range (`offset` / `size`) it echoes the resolved bounds (`start_col` / `end_col`) and the padding needed when a wide cluster straddles either edge (`pad_left` / `pad_right`).  
-It also accepts `opts:` and a `Utf8Policy`.  
-
-```crystal
-sl = UW.slice_cols("a日本b", 1, 4)
-# sl.offset / sl.size        → byte range inside [1, 4)
-# sl.start_col / sl.end_col  → resolved column bounds
-# sl.pad_left / sl.pad_right → fill where a wide cluster was clipped
-```
-
-## Truncation
-
-`truncate` returns the largest prefix within a column budget without splitting a cluster, as width consumed and cut offset.  
-It accepts a `Utf8Policy` and `WidthOpts` like the other measurement entry points.  
-
-```crystal
-width, offset = UW.truncate("日本語 is fun", 6)
-# => {6, 9}
-
-wide = UW::WidthOpts.unicode.with_ambiguous_wide(true)
-UW.truncate("a§b", 2, opts: wide)   # promoted § counts as 2
+UW.swidth("\u00A7\u00B1\u2103")             # => 3
+UW.swidth("\u00A7\u00B1\u2103", opts: wide) # => 6
+UW.width_cp(0x00A7_u32, wide)               # => 2
 ```
 
 ## Encodings
 
-Every entry point is overloaded for `String`, `Bytes`, and `Slice(UInt32)`.  
-The UTF-8 paths take a `Utf8Policy`: `Replace` (default) advances one byte on bad input as U+FFFD; `Strict` stops at the first invalid byte.  
-This applies throughout — width, segmentation, line breaks, column mapping, navigation, and truncation — not just `swidth`.  
-The UTF-32 paths skip decoding.  
+Every entry point is overloaded for `String`, `Bytes`, and `Slice(UInt32)`, and the behavior is identical across them — only the unit of `size`/offset changes. The UTF-8 paths take a `Utf8Policy` positionally after the buffer; the UTF-32 path skips decoding entirely.
 
 ```crystal
 UW.swidth(str)                              # String
 UW.swidth(bytes, UW::Utf8Policy::Strict)    # Bytes, strict
 UW.swidth(slice_of_u32)                     # UTF-32
 
-UW.cells(bytes, UW::Utf8Policy::Strict)             # policy on cells
-UW.next_grapheme(bytes, off, UW::Utf8Policy::Strict) # …and navigation
+UW.cells(bytes, UW::Utf8Policy::Strict)
+UW.next_grapheme(bytes, off, UW::Utf8Policy::Strict)
 ```
 
 ## Performance
 
-Allocation-free on the hot path; iterators are stack-allocated structs with `reset` for reuse across buffers without reallocating.  
-Every iterator — `Utf32Clusters`, `Utf8Clusters`, `Utf32LineBreaks`, `Utf8LineBreaks`, `Utf32Cells`, `Utf8Cells` — supports it.  
+Allocation-free on the hot path. Iterators are stack-allocated structs with `reset`, so one iterator can be reused across many buffers without reallocating — the pattern to use when measuring a screen's worth of lines per frame.
 
 ```crystal
 it = UW.clusters("ab".to_slice)
@@ -243,41 +262,29 @@ it.reset("\u4E00\u4E01".to_slice)   # same struct, new buffer
 it.each { |span| ... }
 ```
 
-Run `make bench` for figures on your hardware.
+Every iterator supports it: `Utf32Clusters`, `Utf8Clusters`, `Utf32LineBreaks`, `Utf8LineBreaks`, `Utf32Cells`, `Utf8Cells`. Run `make bench` for figures on your hardware.
 
 ## API summary
 
-| Function                          | Purpose                                                      |
-|-----------------------------------|--------------------------------------------------------------|
-| `swidth`                          | Total display width of a string                              |
-| `width`                           | Width and size of the first grapheme cluster                 |
-| `width_cp`                        | Width of a single scalar (mode / opts overloads)             |
-| `clusters`                        | Iterator over grapheme clusters (`Span`)                     |
-| `grapheme_next`                   | Size of the next grapheme cluster                            |
-| `line_breaks`                     | Iterator over line-break opportunities (`BreakSpan`)         |
-| `line_break_next`                 | Size of the first line segment                               |
-| `truncate`                        | Largest cluster-safe prefix within a column budget           |
-| `cells`                           | Iterator over clusters with column positions (`Cell`)        |
-| `offset_to_col` / `col_to_offset` | Map between byte offsets and columns                         |
-| `next_grapheme` / `prev_grapheme` | Cluster boundary navigation                                  |
-| `slice_cols`                      | Byte range for a column span, with edge padding (`ColSlice`) |
-| `unicode_version`                 | The UCD version the tables were built from                   |
+| Function                          | Purpose                                                        |
+|-----------------------------------|----------------------------------------------------------------|
+| `swidth`                          | Total display width of a string                                |
+| `width`                           | Width and size of the first grapheme cluster                   |
+| `width_cp`                        | Width of a single scalar (mode / opts overloads)               |
+| `truncate`                        | Largest cluster-safe prefix within a column budget             |
+| `slice_cols`                      | Byte range for a column window, with edge padding (`ColSlice`) |
+| `cells`                           | Iterator over clusters with column positions (`Cell`)          |
+| `offset_to_col` / `col_to_offset` | Map between byte offsets and columns                           |
+| `next_grapheme` / `prev_grapheme` | Cluster boundary navigation                                    |
+| `clusters`                        | Iterator over grapheme clusters (`Span`)                       |
+| `grapheme_next`                   | Size of the next grapheme cluster                              |
+| `line_breaks`                     | Iterator over line-break opportunities (`BreakSpan`)           |
+| `line_break_next`                 | Size of the first line segment                                 |
+| `unicode_version`                 | The UCD version the tables were built from                     |
 
-Option and policy types: 
-- `WidthOpts`
-- `WidthMode`
-- `Config`
-- `Mode2027State`
-- `CtrlPolicy`
-- `Utf8Policy`
-- `SpanKind`
-- `State`
+Option and policy types: `WidthOpts`, `WidthMode`, `Config`, `Mode2027State`, `CtrlPolicy`, `Utf8Policy`, `SpanKind`, `State`.
 
-Record types you destructure: 
-- `Span`
-- `BreakSpan`
-- `Cell`
-- `ColSlice`
+Record types you destructure: `Span`, `BreakSpan`, `Cell`, `ColSlice`.
 
 ## License
 
