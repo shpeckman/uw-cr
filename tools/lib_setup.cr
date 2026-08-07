@@ -13,8 +13,6 @@ module LibSetup
   TEST_BASE_URL = "#{BASE_URL}/auxiliary"
   TEST_FILES    = {
     "GraphemeBreakTest.txt",
-    "WordBreakTest.txt",
-    "SentenceBreakTest.txt",
     "LineBreakTest.txt",
   }
 
@@ -26,8 +24,6 @@ module LibSetup
     "EastAsianWidth.txt"        => "EastAsianWidth.txt",
     "DerivedCoreProperties.txt" => "DerivedCoreProperties.txt",
     "GraphemeBreakProperty.txt" => "auxiliary/GraphemeBreakProperty.txt",
-    "WordBreakProperty.txt"     => "auxiliary/WordBreakProperty.txt",
-    "SentenceBreakProperty.txt" => "auxiliary/SentenceBreakProperty.txt",
     "DerivedLineBreak.txt"      => "extracted/DerivedLineBreak.txt",
     "PropertyValueAliases.txt"  => "PropertyValueAliases.txt",
     "emoji-data.txt"            => "emoji/emoji-data.txt",
@@ -42,22 +38,6 @@ module LibSetup
   INCB_CODE = {"Consonant" => 1, "Extend" => 2, "Linker" => 3}
 
   ZERO_WIDTH_GCB = {"Extend", "ZWJ", "Prepend", "SpacingMark"}
-
-  WB_CODE = {
-    "CR" => 1, "LF" => 2, "Newline" => 3, "Extend" => 4, "ZWJ" => 5,
-    "Format" => 6, "Regional_Indicator" => 7, "WSegSpace" => 8,
-    "ALetter" => 9, "Hebrew_Letter" => 10, "Katakana" => 11, "Numeric" => 12,
-    "ExtendNumLet" => 13, "MidLetter" => 14, "MidNum" => 15, "MidNumLet" => 16,
-    "Single_Quote" => 17, "Double_Quote" => 18,
-  }
-  WB_N = 19
-
-  SB_CODE = {
-    "CR" => 1, "LF" => 2, "Extend" => 3, "Sep" => 4, "Format" => 5,
-    "Sp" => 6, "Lower" => 7, "Upper" => 8, "OLetter" => 9, "Numeric" => 10,
-    "ATerm" => 11, "SContinue" => 12, "STerm" => 13, "Close" => 14,
-  }
-  SB_N = 15
 
   LB_CODE = {
     "AL" => 0, "BK" => 1, "CR" => 2, "LF" => 3, "NL" => 4, "SP" => 5,
@@ -111,8 +91,6 @@ module LibSetup
   def self.build_props(src : Hash(String, String)) : Array(UInt32)
     gc      = Array(String?).new(MAX, nil)
     gbp     = Array(String?).new(MAX, nil)
-    wbp     = Array(String?).new(MAX, nil)
-    sbp     = Array(String?).new(MAX, nil)
     lbp     = Array(String?).new(MAX, nil)
     eaw     = Array(String).new(MAX, "N")
     incb    = Array(String?).new(MAX, nil)
@@ -145,16 +123,6 @@ module LibSetup
     each_range(src["GraphemeBreakProperty.txt"]) do |lo, hi, cols|
       v = cols[1]
       (lo..hi).each { |cp| gbp[cp] = v }
-    end
-
-    each_range(src["WordBreakProperty.txt"]) do |lo, hi, cols|
-      v = cols[1]
-      (lo..hi).each { |cp| wbp[cp] = v }
-    end
-
-    each_range(src["SentenceBreakProperty.txt"]) do |lo, hi, cols|
-      v = cols[1]
-      (lo..hi).each { |cp| sbp[cp] = v }
     end
 
     each_range(src["DerivedLineBreak.txt"]) do |lo, hi, cols|
@@ -241,9 +209,6 @@ module LibSetup
         else                       raw_lb
         end
 
-      wb = wbp[cp]
-      sb = sbp[cp]
-
       packed = w.to_u32
       packed |= ((g ? (GCB_CODE[g]? || 0) : 0) << 2).to_u32
       packed |= 0x40_u32 if extpict[cp]
@@ -251,14 +216,12 @@ module LibSetup
       if iv = incb[cp]
         packed |= ((INCB_CODE[iv]? || 0) << 8).to_u32
       end
-      packed |= ((wb ? (WB_CODE[wb]? || 0) : 0).to_u32 << 10)
       packed |= ((LB_CODE[lb]? || 0).to_u32 << 15)
       packed |= (1_u32 << 21) if cat == "Pi"
       packed |= (1_u32 << 22) if cat == "Pf"
       packed |= (1_u32 << 23) if ea == "F" || ea == "W" || ea == "H"
       packed |= (1_u32 << 24) if extpict[cp] && cat.nil?
       packed |= (1_u32 << 25) if cp == DOTTED_CIRCLE
-      packed |= ((sb ? (SB_CODE[sb]? || 0) : 0).to_u32 << 26)
       packed |= (1_u32 << 30) if ea == "A"
 
       props[cp] = packed
@@ -424,8 +387,6 @@ module LibSetup
       STAGE1_LEN = #{stage1.size}
       N_BLOCKS   = #{stage2.size // BLOCK_SIZE}
       GCB_CLASSES = #{GCB_N}
-      WB_CLASSES = #{WB_N}
-      SB_CLASSES = #{SB_N}
       LB_CLASSES = #{LB_N}
 
       private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}

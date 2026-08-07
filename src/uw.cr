@@ -8,10 +8,7 @@ require "./uw/cluster"
 require "./uw/utf8"
 require "./uw/iter"
 require "./uw/linebreak"
-require "./uw/wrap"
 require "./uw/cells"
-require "./uw/tabs"
-require "./uw/ansi"
 
 module UW
   {% unless @type.has_constant?("CLUSTER_WIDTH_CAP") %}
@@ -56,18 +53,6 @@ module UW
 
   def self.line_break_next(s : String, policy : Utf8Policy = Utf8Policy::Replace) : Int32
     line_break_next(s.to_slice, policy)
-  end
-
-  def self.wrap(cps : Slice(UInt32), cols : Int32, opts : WrapOpts = WrapOpts.new) : Utf32Wrap
-    Utf32Wrap.new(cps, cols, opts)
-  end
-
-  def self.wrap(s : Bytes, cols : Int32, policy : Utf8Policy = Utf8Policy::Replace, opts : WrapOpts = WrapOpts.new) : Utf8Wrap
-    Utf8Wrap.new(s, cols, policy, opts)
-  end
-
-  def self.wrap(s : String, cols : Int32, policy : Utf8Policy = Utf8Policy::Replace, opts : WrapOpts = WrapOpts.new) : Utf8Wrap
-    Utf8Wrap.new(s.to_slice, cols, policy, opts)
   end
 
   def self.clusters(cps : Slice(UInt32), opts : WidthOpts = WidthOpts.unicode) : Utf32Clusters

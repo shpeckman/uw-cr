@@ -1,12 +1,6 @@
 # src/uw/cells.cr
 
 module UW
-  enum Align
-    Left   = 0
-    Right  = 1
-    Center = 2
-  end
-
   record Cell, offset : Int32, size : Int32, width : Int32, col : Int32, kind : SpanKind = SpanKind::Graphemic
 
   struct Utf32Cells
@@ -245,66 +239,5 @@ module UW
       return ColSlice.new(0, 0, lo, hi, pad_left, pad_right)
     end
     ColSlice.new(seg_off, seg_end - seg_off, lo, hi, pad_left, pad_right)
-  end
-
-  def self.pad(s : String, cols : Int32, align : Align = Align::Left, fill : Char = ' ', opts : WidthOpts = WidthOpts.unicode) : String
-    w = swidth(s, opts: opts)
-    return s if w >= cols
-    deficit = cols - w
-    fw      = width_cp(fill.ord.to_u32, opts)
-    fw      = 1 if fw <= 0
-    case align
-    in Align::Left
-      s + fill_run(fill, fw, deficit)
-    in Align::Right
-      fill_run(fill, fw, deficit) + s
-    in Align::Center
-      left  = deficit // 2
-      right = deficit - left
-      fill_run(fill, fw, left) + s + fill_run(fill, fw, right)
-    end
-  end
-
-  def self.ljust(s : String, cols : Int32, fill : Char = ' ', opts : WidthOpts = WidthOpts.unicode) : String
-    pad(s, cols, Align::Left, fill, opts)
-  end
-
-  def self.rjust(s : String, cols : Int32, fill : Char = ' ', opts : WidthOpts = WidthOpts.unicode) : String
-    pad(s, cols, Align::Right, fill, opts)
-  end
-
-  def self.center(s : String, cols : Int32, fill : Char = ' ', opts : WidthOpts = WidthOpts.unicode) : String
-    pad(s, cols, Align::Center, fill, opts)
-  end
-
-  private def self.fill_run(fill : Char, fill_width : Int32, deficit : Int32) : String
-    return "" if deficit <= 0
-    count = deficit // fill_width
-    rem   = deficit - count * fill_width
-    String.build do |io|
-      count.times { io << fill }
-      rem.times { io << ' ' }
-    end
-  end
-
-  def self.fit(s : String, cols : Int32, ellipsis : String = "\u2026", opts : WidthOpts = WidthOpts.unicode) : String
-    return "" if cols <= 0
-    w = swidth(s, opts: opts)
-    return s if w <= cols
-
-    ell_w = swidth(ellipsis, opts: opts)
-    if ell_w > cols
-      _, cut = truncate(s, cols, opts: opts)
-      return s.byte_slice(0, cut)
-    end
-
-    budget = cols - ell_w
-    _, cut = truncate(s, budget, opts: opts)
-    s.byte_slice(0, cut) + ellipsis
-  end
-
-  def self.fit_pad(s : String, cols : Int32, align : Align = Align::Left, ellipsis : String = "\u2026", fill : Char = ' ', opts : WidthOpts = WidthOpts.unicode) : String
-    fitted = fit(s, cols, ellipsis, opts)
-    pad(fitted, cols, align, fill, opts)
   end
 end

@@ -24,42 +24,6 @@ module UW
   private INCB_EXTEND    = 2
   private INCB_LINKER    = 3
 
-  private WB_OTHER     =  0_u8
-  private WB_CR        =  1_u8
-  private WB_LF        =  2_u8
-  private WB_NEWLINE   =  3_u8
-  private WB_EXTEND    =  4_u8
-  private WB_ZWJ       =  5_u8
-  private WB_FORMAT    =  6_u8
-  private WB_RI        =  7_u8
-  private WB_WSEGSP    =  8_u8
-  private WB_ALETTER   =  9_u8
-  private WB_HEBREW    = 10_u8
-  private WB_KATAKANA  = 11_u8
-  private WB_NUMERIC   = 12_u8
-  private WB_EXTNUM    = 13_u8
-  private WB_MIDLET    = 14_u8
-  private WB_MIDNUM    = 15_u8
-  private WB_MIDNUMLET = 16_u8
-  private WB_SQUOTE    = 17_u8
-  private WB_DQUOTE    = 18_u8
-
-  private SB_OTHER     =  0_u8
-  private SB_CR        =  1_u8
-  private SB_LF        =  2_u8
-  private SB_EXTEND    =  3_u8
-  private SB_SEP       =  4_u8
-  private SB_FORMAT    =  5_u8
-  private SB_SP        =  6_u8
-  private SB_LOWER     =  7_u8
-  private SB_UPPER     =  8_u8
-  private SB_OLETTER   =  9_u8
-  private SB_NUMERIC   = 10_u8
-  private SB_ATERM     = 11_u8
-  private SB_SCONTINUE = 12_u8
-  private SB_STERM     = 13_u8
-  private SB_CLOSE     = 14_u8
-
   private LB_AL  =  0_u8
   private LB_BK  =  1_u8
   private LB_CR  =  2_u8
@@ -146,11 +110,6 @@ module UW
     end
 
     @[AlwaysInline]
-    protected def self.wb(p : UInt32) : UInt8
-      ((p >> 10) & 0x1F).to_u8
-    end
-
-    @[AlwaysInline]
     protected def self.lb(p : UInt32) : UInt8
       ((p >> 15) & 0x3F).to_u8
     end
@@ -178,11 +137,6 @@ module UW
     @[AlwaysInline]
     protected def self.dotted_circle?(p : UInt32) : Bool
       (p & (1_u32 << 25)) != 0
-    end
-
-    @[AlwaysInline]
-    protected def self.sb(p : UInt32) : UInt8
-      ((p >> 26) & 0xF).to_u8
     end
 
     @[AlwaysInline]
