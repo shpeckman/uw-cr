@@ -17,7 +17,7 @@ dependencies:
 ```sh
 make setup   # download UCD 17.0.0, build the tables
 make spec    # verify against GraphemeBreakTest.txt + LineBreakTest.txt
-make benc    # run benchmarking
+make bench   # run benchmarking
 ```
 
 `make spec` caches the test files under `$XDG_CACHE_HOME/uw-cr/<version>` (falling back to `~/.cache`).
