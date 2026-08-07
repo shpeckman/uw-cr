@@ -1,4 +1,9 @@
 /.docs/
-/uw
-/tools/ucd/
-/spec/data/
+/docs/
+/lib/
+/bin/
+/.shards/
+*.dwarf
+
+/src/uw/data/
+/src/uw/tables.cr

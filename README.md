@@ -29,7 +29,10 @@ make setup
 ```
 
 Run `make spec` to verify against the official `GraphemeBreakTest.txt` and
-`LineBreakTest.txt` conformance suites.
+`LineBreakTest.txt` conformance suites. The spec suite downloads those two files
+itself on first run and caches them under your system cache directory
+(`$XDG_CACHE_HOME/uw-cr/<version>`, falling back to `~/.cache`), keyed by the UCD
+version the tables were built from, so no separate setup step is needed for them.
 
 ## Quick start
 

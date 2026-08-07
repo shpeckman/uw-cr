@@ -9,6 +9,7 @@ module LibSetup
   UCD_VERSION = "17.0.0"
   BASE_URL    = "https://www.unicode.org/Public/#{UCD_VERSION}/ucd"
   OUT_DIR     = "#{__DIR__}/../src/uw"
+  DATA_DIR    = "#{OUT_DIR}/data"
 
   MAX        = 0x110000
   BLOCK_SIZE =      256
@@ -323,7 +324,7 @@ module LibSetup
   end
 
   def self.clean
-    Dir.glob("#{OUT_DIR}/*.bin").each { |f| File.delete(f) }
+    Dir.glob("#{DATA_DIR}/*.bin").each { |f| File.delete(f) }
     tables = "#{OUT_DIR}/tables.cr"
     File.delete(tables) if File.exists?(tables)
   end
@@ -360,10 +361,10 @@ module LibSetup
       stage1, stage2 = build_trie(props)
       brk            = build_break_table
 
-      FileUtils.mkdir_p(OUT_DIR)
-      write_u16("#{OUT_DIR}/stage1.bin", stage1)
-      write_u32("#{OUT_DIR}/stage2.bin", stage2)
-      File.write("#{OUT_DIR}/break.bin", Bytes.new(brk.size) { |i| brk[i] })
+      FileUtils.mkdir_p(DATA_DIR)
+      write_u16("#{DATA_DIR}/stage1.bin", stage1)
+      write_u32("#{DATA_DIR}/stage2.bin", stage2)
+      File.write("#{DATA_DIR}/break.bin", Bytes.new(brk.size) { |i| brk[i] })
 
       tables_src = <<-CR
       # src/uw/tables.cr
@@ -378,9 +379,9 @@ module LibSetup
         GCB_CLASSES = #{GCB_N}
         LB_CLASSES = #{LB_N}
 
-        private STAGE1_BLOB = {{ read_file("\#{__DIR__}/stage1.bin") }}
-        private STAGE2_BLOB = {{ read_file("\#{__DIR__}/stage2.bin") }}
-        private BREAK_BLOB  = {{ read_file("\#{__DIR__}/break.bin") }}
+        private STAGE1_BLOB = {{ read_file("\#{__DIR__}/data/stage1.bin") }}
+        private STAGE2_BLOB = {{ read_file("\#{__DIR__}/data/stage2.bin") }}
+        private BREAK_BLOB  = {{ read_file("\#{__DIR__}/data/break.bin") }}
 
         private def self.load_u16(blob : String, count : Int32) : Slice(UInt16)
           out = Slice(UInt16).new(count)
