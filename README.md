@@ -112,9 +112,13 @@ sl = UW.slice_cols("a\u65E5\u672Cb", 1, 4)   # columns [1, 4)
 
 Edge cases: an empty or inverted range (`end_col <= start_col`) returns a zero-length slice with both pads `0` and the bounds echoed. A range entirely past the end of the string returns a zero-length slice — the loop simply finds no cells in range. A negative `start_col` is clamped to `0`.
 
+**`pad_left` and `pad_right` only ever count a bisected wide glyph.** They are *not* the fill for a short line. When the window extends past the end of the content, no glyph straddles the right edge, so `pad_right` stays `0` and the returned columns cover only the real text — it is the caller's job to pad the remainder out to the window width. This is the single most important thing to get right, and it drives the example below.
+
 #### Worked example: render one scrolled, clipped row
 
-This is the whole point of the function — take a line, a horizontal scroll offset, and a viewport width, and produce exactly the cells to draw, padded to the full width. Note the third argument is `scroll + width`, an **absolute** end column, not the width.
+Take a line, a horizontal scroll offset, and a viewport width, and produce exactly the cells to draw, padded to the full width. Note the third argument is `scroll + width`, an **absolute** end column, not the width.
+
+To pad correctly you need the column width of the middle segment. Measure the emitted bytes with `swidth` — it is right in every case, including a line shorter than the window, because it counts only the real characters and lets the trailing pad cover the rest.
 
 ```crystal
 def render_row(io : IO, line : String, scroll : Int32, width : Int32) : Nil
@@ -134,12 +138,20 @@ def render_row(io : IO, line : String, scroll : Int32, width : Int32) : Nil
 end
 
 def emit_spaces(io : IO, n : Int32) : Int32
-  n.times { io << ' ' } if n > 0
-  n < 0 ? 0 : n
+  return 0 if n <= 0
+  n.times { io << ' ' }
+  n
 end
 ```
 
-Measure the emitted slice with `swidth` rather than assuming its column span — that keeps the padding correct for wide content, which is the one place a start-plus-width mental model silently breaks.
+> **Optimization — only when the window is fully covered.** If you can *guarantee* the content spans the whole window (e.g. a wide document scrolled well within its bounds, never past the last column), you can skip the `swidth` pass and derive the segment width from the slice: it is the window span minus the two pads.
+>
+> ```crystal
+> seg    = (sl.end_col - sl.start_col) - sl.pad_left - sl.pad_right
+> filled = sl.pad_left + seg + sl.pad_right   # == end_col - start_col
+> ```
+>
+> This is wrong the moment the window runs past the end of a short line: `pad_right` is `0` there (nothing straddled the edge), so `seg` is computed as the full remaining window while only the real characters were emitted, and the line is left under-filled. `slice_cols` gives you no flag distinguishing "covered" from "past the end," so use this form only where coverage is an invariant you already hold, never as the default.
 
 ## Placing a cursor by column
 
